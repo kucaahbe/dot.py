@@ -109,44 +109,32 @@ class Dot:
 
     # clone stuff
     self.log_info("started cloning...")
-    async = Async()
-    for dot in self.dots:
-      name, url = dot
-      repo = os.path.join(self.config_path,name)
+    def job(name,repo,url,async):
       async.add(Git().clone(url,repo),
           lambda name: self.log_info('cloned {}'.format(name)),
           name)
-    async.run()
+    self._in_repos(job)
 
   def status(self):
     self._parse_manifest()
     self.log_info('repos status:')
-    async = Async()
-    for dot in self.dots:
-      name, url = dot
-      repo = os.path.join(self.config_path,name)
+    def job(name,repo,url,async):
       async.add(Git(repo).status())
-    async.run()
+    self._in_repos(job)
 
   def update(self):
     self._parse_manifest()
     self.log_info('pulling from remotes...')
-    async = Async()
-    for dot in self.dots:
-      name, url = dot
-      repo = os.path.join(self.config_path,name)
+    def job(name,repo,url,async):
       async.add(Git(repo).pull())
-    async.run()
+    self._in_repos(job)
 
   def upload(self):
     self._parse_manifest()
     self.log_info('pushing to remotes...')
-    async = Async()
-    for dot in self.dots:
-      name, url = dot
-      repo = os.path.join(self.config_path,name)
+    def job(name,repo,url,async):
       async.add(Git(repo).push())
-    async.run()
+    self._in_repos(job)
 
   def chdir(self):
     self._parse_manifest()
@@ -179,6 +167,14 @@ class Dot:
     manifest_data = ConfigParser.ConfigParser()
     manifest_data.read(self.manifest)
     self.dots = manifest_data.items('all')
+
+  def _in_repos(self,job):
+    async = Async()
+    for dot in self.dots:
+      name, url = dot
+      repo = os.path.join(self.config_path,name)
+      job(name,repo,url,async)
+    async.run()
 
 def main():
   dot = Dot()

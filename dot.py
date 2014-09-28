@@ -31,6 +31,26 @@ class Async():
       t.start()
     for t in threads: t.join()
 
+class Git():
+
+  def __init__(self,path=None):
+    self.repo_path = path
+
+  def clone(self,url,repo):
+    return 'git clone --recursive -- {} {}'.format(url,repo)
+
+  def pull(self):
+    return self._git() + 'pull'
+
+  def push(self):
+    return self._git() + 'push'
+
+  def status(self):
+    return self._git() + 'status --porcelain'
+
+  def _git(self):
+    return 'git --git-dir={0}/.git --work-tree={0} '.format(self.repo_path)
+
 class Dot:
 
   CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
@@ -93,7 +113,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
-      async.add('git clone -q -- {} {}'.format(url,repo),
+      async.add(Git().clone(url,repo),
           lambda name: self.log_info('cloned {}'.format(name)),
           name)
     async.run()
@@ -105,7 +125,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
-      async.add('git --git-dir={0}/.git --work-tree={0} status'.format(repo))
+      async.add(Git(repo).status())
     async.run()
 
   def update(self):
@@ -115,7 +135,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
-      async.add('git --git-dir={0}/.git --work-tree={0} pull'.format(repo))
+      async.add(Git(repo).pull())
     async.run()
 
   def upload(self):
@@ -125,7 +145,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
-      async.add('git --git-dir={0}/.git --work-tree={0} push'.format(repo))
+      async.add(Git(repo).push())
     async.run()
 
   def chdir(self):

@@ -8,33 +8,33 @@ import urllib2
 import ConfigParser
 import threading
 
+class AsyncExec(threading.Thread):
+  def __init__(self,cmd,callback=None,args=None):
+    threading.Thread.__init__(self)
+    self.cmd      = cmd
+    self.callback = callback
+    self.args     = args
+  def run(self):
+    os.system(self.cmd)
+    if self.callback: self.callback(*self.args)
+
+class Async():
+  def __init__(self):
+    self.cmds=[]
+  def add(self,cmd,callback=None,*args):
+    self.cmds.append((cmd,callback,args))
+  def run(self):
+    threads = []
+    for cmd in self.cmds:
+      t = AsyncExec(*cmd)
+      threads.append(t)
+      t.start()
+    for t in threads: t.join()
+
 class Dot:
 
   CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
   MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
-
-  class AsyncExec(threading.Thread):
-    def __init__(self,cmd,callback=None,args=None):
-      threading.Thread.__init__(self)
-      self.cmd      = cmd
-      self.callback = callback
-      self.args     = args
-    def run(self):
-      os.system(self.cmd)
-      if self.callback: self.callback(*self.args)
-
-  class Async():
-    def __init__(self):
-      self.cmds=[]
-    def add(self,cmd,callback=None,*args):
-      self.cmds.append((cmd,callback,args))
-    def run(self):
-      threads = []
-      for cmd in self.cmds:
-        t = Dot.AsyncExec(*cmd)
-        threads.append(t)
-        t.start()
-      for t in threads: t.join()
 
   def __init__(self):
     self.config_path = self.__class__.CONFIG_PATH
@@ -89,7 +89,7 @@ class Dot:
 
     # clone stuff
     self.log_info("started cloning...")
-    async = self.__class__.Async()
+    async = Async()
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
@@ -101,7 +101,7 @@ class Dot:
   def status(self):
     self._parse_manifest()
     self.log_info('repos status:')
-    async = self.__class__.Async()
+    async = Async()
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
@@ -111,7 +111,7 @@ class Dot:
   def update(self):
     self._parse_manifest()
     self.log_info('pulling from remotes...')
-    async = self.__class__.Async()
+    async = Async()
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
@@ -121,7 +121,7 @@ class Dot:
   def upload(self):
     self._parse_manifest()
     self.log_info('pushing to remotes...')
-    async = self.__class__.Async()
+    async = Async()
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)

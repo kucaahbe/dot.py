@@ -6,17 +6,24 @@ import sys
 import argparse
 import urllib2
 import ConfigParser
-import threading
 
-class AsyncExec(threading.Thread):
+class AsyncExec():
   def __init__(self,cmd,callback=None,args=None):
-    threading.Thread.__init__(self)
     self.cmd      = cmd
     self.callback = callback
     self.args     = args
   def run(self):
     os.system(self.cmd)
     if self.callback: self.callback(*self.args)
+  def start(self):
+    child_pid = os.fork()
+    if child_pid==0:
+      self.run()
+      exit(0)
+    else:
+      self.child_pid = child_pid
+  def join(self):
+    os.waitpid(self.child_pid,0)
 
 class Async():
   def __init__(self):
@@ -24,12 +31,12 @@ class Async():
   def add(self,cmd,callback=None,*args):
     self.cmds.append((cmd,callback,args))
   def run(self):
-    threads = []
+    subprocesses = []
     for cmd in self.cmds:
       t = AsyncExec(*cmd)
-      threads.append(t)
+      subprocesses.append(t)
       t.start()
-    for t in threads: t.join()
+    for t in subprocesses: t.join()
 
 class Git():
 

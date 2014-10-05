@@ -3,40 +3,38 @@
 
 import os
 import sys
+import subprocess
 import argparse
 import urllib2
 import ConfigParser
 
 class AsyncExec():
-  def __init__(self,cmd,callback=None,args=None):
+  def __init__(self,cmd):
     self.cmd      = cmd
-    self.callback = callback
-    self.args     = args
-  def run(self):
-    os.system(self.cmd)
-    if self.callback: self.callback(*self.args)
+    self._process = None
+    self.stdout   = None
+    self.stderr   = None
   def start(self):
-    child_pid = os.fork()
-    if child_pid==0:
-      self.run()
-      exit(0)
-    else:
-      self.child_pid = child_pid
+    self._process = subprocess.Popen(self.cmd,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    return self
   def join(self):
-    os.waitpid(self.child_pid,0)
+    self.stdout,self.stderr = self._process.communicate()
+    if self._process.returncode != 0:
+      raise Exception('subprocess returned non-zero error code')
 
 class Async():
   def __init__(self):
-    self.cmds=[]
-  def add(self,cmd,callback=None,*args):
-    self.cmds.append((cmd,callback,args))
+    self.cmds={}
+  def add(self,cmd,index):
+    self.cmds[index]=cmd
   def run(self):
-    subprocesses = []
-    for cmd in self.cmds:
-      t = AsyncExec(*cmd)
-      subprocesses.append(t)
-      t.start()
-    for t in subprocesses: t.join()
+    subprocesses = {}
+    for index,cmd in self.cmds.iteritems():
+      subprocesses[index]=AsyncExec(cmd).start()
+    for t in subprocesses.itervalues(): t.join()
+    for index,data in subprocesses.iteritems():
+      yield index,data.stdout,data.stderr
 
 class Git():
 
@@ -44,19 +42,23 @@ class Git():
     self.repo_path = path
 
   def clone(self,url,repo):
-    return 'git clone --recursive -- {} {}'.format(url,repo)
+    return ['git', 'clone', '--recursive', '--', url, repo]
 
   def pull(self):
-    return self._git() + 'pull'
+    return self._git() + ['pull']
 
   def push(self):
-    return self._git() + 'push'
+    return self._git() + ['push']
 
   def status(self):
-    return self._git() + 'status --porcelain'
+    return self._git() + ['status', '--porcelain']
 
   def _git(self):
-    return 'git --git-dir={0}/.git --work-tree={0} '.format(self.repo_path)
+    return ['git'] + self._git_path_opts()
+
+  def _git_path_opts(self):
+    tmpl = ['--git-dir={}/.git', '--work-tree={}']
+    return map(lambda s: s.format(self.repo_path),tmpl)
 
 class Dot:
 
@@ -117,31 +119,36 @@ class Dot:
     # clone stuff
     self.log_info("started cloning...")
     def job(name,repo,url,async):
-      async.add(Git().clone(url,repo),
-          lambda name: self.log_info('cloned {}'.format(name)),
-          name)
-    self._in_repos(job)
+      async.add(Git().clone(url,repo),name)
+    for result in self._in_repos(job):
+      print 'ok'
 
   def status(self):
     self._parse_manifest()
     self.log_info('repos status:')
     def job(name,repo,url,async):
-      async.add(Git(repo).status())
-    self._in_repos(job)
+      async.add(Git(repo).status(),name)
+    for result in self._in_repos(job):
+      if len(result)>0:
+        print "DIRTY"
+      else:
+        print "clean"
 
   def update(self):
     self._parse_manifest()
     self.log_info('pulling from remotes...')
     def job(name,repo,url,async):
-      async.add(Git(repo).pull())
-    self._in_repos(job)
+      async.add(Git(repo).pull(),name)
+    for result in self._in_repos(job):
+      print 'ok'
 
   def upload(self):
     self._parse_manifest()
     self.log_info('pushing to remotes...')
     def job(name,repo,url,async):
       async.add(Git(repo).push())
-    self._in_repos(job)
+    for result in self._in_repos(job):
+      print 'ok'
 
   def chdir(self):
     self._parse_manifest()
@@ -181,7 +188,12 @@ class Dot:
       name, url = dot
       repo = os.path.join(self.config_path,name)
       job(name,repo,url,async)
-    async.run()
+
+    results = async.run()
+    for data in results:
+      repo,stdout,stderr = data
+      sys.stdout.write(repo+': ')
+      yield stdout
 
 def main():
   dot = Dot()

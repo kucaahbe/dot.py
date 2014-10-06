@@ -14,14 +14,16 @@ class AsyncExec():
     self._process = None
     self.stdout   = None
     self.stderr   = None
+    self.returncode = None
   def start(self):
     self._process = subprocess.Popen(self.cmd,
         stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     return self
+  def ok(self):
+    return self.returncode == 0
   def join(self):
     self.stdout,self.stderr = self._process.communicate()
-    if self._process.returncode != 0:
-      raise Exception('subprocess returned non-zero error code')
+    self.returncode = self._process.returncode
 
 class Async():
   def __init__(self):
@@ -33,8 +35,8 @@ class Async():
     for index,cmd in self.cmds.iteritems():
       subprocesses[index]=AsyncExec(cmd).start()
     for t in subprocesses.itervalues(): t.join()
-    for index,data in subprocesses.iteritems():
-      yield index,data.stdout,data.stderr
+    for index,executor in subprocesses.iteritems():
+      yield index,executor
 
 class Git():
 
@@ -191,9 +193,19 @@ class Dot:
 
     results = async.run()
     for data in results:
-      repo,stdout,stderr = data
+      repo,executor = data
+
+      logfile = os.path.join(self.config_path,repo+'.log')
+      with open(logfile,'w') as log:
+        log.write("command: {}\n".format(' '.join(str(i) for i in executor.cmd)))
+        log.write("return code: {}\n".format(executor.returncode))
+        log.write(executor.stderr+"\n")
+
       sys.stdout.write(repo+': ')
-      yield stdout
+      if executor.ok():
+        yield executor.stdout
+      else:
+        sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
 
 def main():
   dot = Dot()

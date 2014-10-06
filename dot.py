@@ -8,68 +8,14 @@ import argparse
 import urllib2
 import ConfigParser
 
-class AsyncExec():
-  def __init__(self,cmd):
-    self.cmd      = cmd
-    self._process = None
-    self.stdout   = None
-    self.stderr   = None
-    self.returncode = None
-  def start(self):
-    self._process = subprocess.Popen(self.cmd,
-        stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    return self
-  def ok(self):
-    return self.returncode == 0
-  def join(self):
-    self.stdout,self.stderr = self._process.communicate()
-    self.returncode = self._process.returncode
-
-class Async():
-  def __init__(self):
-    self.cmds={}
-  def add(self,cmd,index):
-    self.cmds[index]=cmd
-  def run(self):
-    subprocesses = {}
-    for index,cmd in self.cmds.iteritems():
-      subprocesses[index]=AsyncExec(cmd).start()
-    for t in subprocesses.itervalues(): t.join()
-    for index,executor in subprocesses.iteritems():
-      yield index,executor
-
-class Git():
-
-  def __init__(self,path=None):
-    self.repo_path = path
-
-  def clone(self,url,repo):
-    return ['git', 'clone', '--recursive', '--', url, repo]
-
-  def pull(self):
-    return self._git() + ['pull']
-
-  def push(self):
-    return self._git() + ['push']
-
-  def status(self):
-    return self._git() + ['status', '--porcelain']
-
-  def _git(self):
-    return ['git'] + self._git_path_opts()
-
-  def _git_path_opts(self):
-    tmpl = ['--git-dir={}/.git', '--work-tree={}']
-    return map(lambda s: s.format(self.repo_path),tmpl)
+CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
+MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
 
 class Dot:
 
-  CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
-  MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
-
   def __init__(self):
-    self.config_path = self.__class__.CONFIG_PATH
-    self.manifest    = self.__class__.MANIFEST_PATH
+    self.config_path = CONFIG_PATH
+    self.manifest    = MANIFEST_PATH
     self.dots = []
 
   def parse_args(self,args):
@@ -206,6 +152,60 @@ class Dot:
         yield executor.stdout
       else:
         sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
+
+class AsyncExec():
+  def __init__(self,cmd):
+    self.cmd      = cmd
+    self._process = None
+    self.stdout   = None
+    self.stderr   = None
+    self.returncode = None
+  def start(self):
+    self._process = subprocess.Popen(self.cmd,
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    return self
+  def ok(self):
+    return self.returncode == 0
+  def join(self):
+    self.stdout,self.stderr = self._process.communicate()
+    self.returncode = self._process.returncode
+
+class Async():
+  def __init__(self):
+    self.cmds={}
+  def add(self,cmd,index):
+    self.cmds[index]=cmd
+  def run(self):
+    subprocesses = {}
+    for index,cmd in self.cmds.iteritems():
+      subprocesses[index]=AsyncExec(cmd).start()
+    for t in subprocesses.itervalues(): t.join()
+    for index,executor in subprocesses.iteritems():
+      yield index,executor
+
+class Git():
+
+  def __init__(self,path=None):
+    self.repo_path = path
+
+  def clone(self,url,repo):
+    return ['git', 'clone', '--recursive', '--', url, repo]
+
+  def pull(self):
+    return self._git() + ['pull']
+
+  def push(self):
+    return self._git() + ['push']
+
+  def status(self):
+    return self._git() + ['status', '--porcelain']
+
+  def _git(self):
+    return ['git'] + self._git_path_opts()
+
+  def _git_path_opts(self):
+    tmpl = ['--git-dir={}/.git', '--work-tree={}']
+    return map(lambda s: s.format(self.repo_path),tmpl)
 
 def main():
   dot = Dot()

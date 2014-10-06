@@ -66,16 +66,14 @@ class Dot:
 
     # clone stuff
     self.log_info("started cloning...")
-    def job(name,repo,url,async):
-      async.add(Git().clone(url,repo),name)
+    job = lambda repo,url: Git().clone(url,repo)
     for result in self._in_repos(job):
       print 'ok'
 
   def status(self):
     self._parse_manifest()
     self.log_info('repos status:')
-    def job(name,repo,url,async):
-      async.add(Git(repo).status(),name)
+    job = lambda repo,url: Git(repo).status()
     for result in self._in_repos(job):
       if len(result)>0:
         print "DIRTY"
@@ -85,16 +83,14 @@ class Dot:
   def update(self):
     self._parse_manifest()
     self.log_info('pulling from remotes...')
-    def job(name,repo,url,async):
-      async.add(Git(repo).pull(),name)
+    job = lambda repo,url: Git(repo).pull()
     for result in self._in_repos(job):
       print 'ok'
 
   def upload(self):
     self._parse_manifest()
     self.log_info('pushing to remotes...')
-    def job(name,repo,url,async):
-      async.add(Git(repo).push())
+    job = lambda repo,url: Git(repo).push()
     for result in self._in_repos(job):
       print 'ok'
 
@@ -135,7 +131,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(self.config_path,name)
-      job(name,repo,url,async)
+      async.add(job(repo,url),name)
 
     results = async.run()
     for data in results:

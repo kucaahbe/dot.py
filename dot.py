@@ -63,8 +63,6 @@ class Dot:
       with open(MANIFEST_PATH,'w') as f:
         f.write(manifest)
 
-    self._parse_manifest()
-
     # clone stuff
     self.log_info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
@@ -72,7 +70,6 @@ class Dot:
       print 'ok'
 
   def status(self):
-    self._parse_manifest()
     self.log_info('repos status:')
     job = lambda repo,url: Git(repo).status()
     for result in self._in_repos(job):
@@ -82,21 +79,18 @@ class Dot:
         print "clean"
 
   def update(self):
-    self._parse_manifest()
     self.log_info('pulling from remotes...')
     job = lambda repo,url: Git(repo).pull()
     for result in self._in_repos(job):
       print 'ok'
 
   def upload(self):
-    self._parse_manifest()
     self.log_info('pushing to remotes...')
     job = lambda repo,url: Git(repo).push()
     for result in self._in_repos(job):
       print 'ok'
 
   def chdir(self):
-    self._parse_manifest()
     for dot in self.dots:
       name, url = dot
       repo = os.path.join(CONFIG_PATH,name)
@@ -128,6 +122,7 @@ class Dot:
     self.dots = manifest_data.items('all')
 
   def _in_repos(self,job):
+    self._parse_manifest()
     async = Async()
     for dot in self.dots:
       name, url = dot

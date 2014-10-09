@@ -177,7 +177,7 @@ class Git():
     self.repo_path = path
 
   def clone(self,url,repo):
-    return ['git', 'clone', '--recursive', '--', url, repo]
+    return ['git', 'clone', '-q', '--recursive', '--', url, repo]
 
   def pull(self):
     return self._git() + ['pull']

@@ -14,8 +14,6 @@ MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
 class Dot:
 
   def __init__(self):
-    self.config_path = CONFIG_PATH
-    self.manifest    = MANIFEST_PATH
     self.dots = []
 
   def parse_args(self,args):
@@ -51,15 +49,15 @@ class Dot:
   def install(self):
     manifest_url = self.config.manifest
 
-    os.mkdir(self.config_path)
+    os.mkdir(CONFIG_PATH)
 
-    if os.access(self.manifest,os.R_OK):
+    if os.access(MANIFEST_PATH,os.R_OK):
       self.log_error("sorry, manifest file already exists")
       exit(1)
     else:
       self.log_info('downloading manifest from "{}"...'.format(manifest_url))
       manifest = urllib2.urlopen(manifest_url).read()
-      with open(self.manifest,'w') as f:
+      with open(MANIFEST_PATH,'w') as f:
         f.write(manifest)
 
     self._parse_manifest()
@@ -98,7 +96,7 @@ class Dot:
     self._parse_manifest()
     for dot in self.dots:
       name, url = dot
-      repo = os.path.join(self.config_path,name)
+      repo = os.path.join(CONFIG_PATH,name)
       if self.config.dot == name:
         #os.chdir(repo)
         print repo
@@ -123,21 +121,21 @@ class Dot:
 
   def _parse_manifest(self):
     manifest_data = ConfigParser.ConfigParser()
-    manifest_data.read(self.manifest)
+    manifest_data.read(MANIFEST_PATH)
     self.dots = manifest_data.items('all')
 
   def _in_repos(self,job):
     async = Async()
     for dot in self.dots:
       name, url = dot
-      repo = os.path.join(self.config_path,name)
+      repo = os.path.join(CONFIG_PATH,name)
       async.add(job(repo,url),name)
 
     results = async.run()
     for data in results:
       repo,executor = data
 
-      logfile = os.path.join(self.config_path,repo+'.log')
+      logfile = os.path.join(CONFIG_PATH,repo+'.log')
       with open(logfile,'w') as log:
         log.write("command: {}\n".format(' '.join(str(i) for i in executor.cmd)))
         log.write("return code: {}\n".format(executor.returncode))

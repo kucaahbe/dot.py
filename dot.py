@@ -9,7 +9,9 @@ import urllib2
 import ConfigParser
 
 CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
+REPOS_PATH    = os.path.join(CONFIG_PATH,'data')
 MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
+LOG_PATH      = os.path.join(CONFIG_PATH,'log')
 
 class Dot:
 
@@ -50,6 +52,7 @@ class Dot:
     manifest_url = self.config.manifest
 
     os.mkdir(CONFIG_PATH)
+    os.mkdir(LOG_PATH)
 
     if os.access(MANIFEST_PATH,os.R_OK):
       self.log_error("sorry, manifest file already exists")
@@ -128,14 +131,14 @@ class Dot:
     async = Async()
     for dot in self.dots:
       name, url = dot
-      repo = os.path.join(CONFIG_PATH,name)
+      repo = os.path.join(REPOS_PATH,name)
       async.add(job(repo,url),name)
 
     results = async.run()
     for data in results:
       repo,executor = data
 
-      logfile = os.path.join(CONFIG_PATH,repo+'.log')
+      logfile = os.path.join(LOG_PATH,repo+'.log')
       with open(logfile,'w') as log:
         log.write("command: {}\n".format(' '.join(str(i) for i in executor.cmd)))
         log.write("return code: {}\n".format(executor.returncode))

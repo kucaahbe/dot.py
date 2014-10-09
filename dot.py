@@ -128,15 +128,12 @@ class Dot:
       repo = os.path.join(REPOS_PATH,name)
       async.add(job(repo,url),name)
 
-    results = async.run()
-    for data in results:
-      repo,executor = data
-
+    for repo,executor in async.run():
       logfile = os.path.join(LOG_PATH,repo+'.log')
       with open(logfile,'w') as log:
-        log.write("command: {}\n".format(' '.join(str(i) for i in executor.cmd)))
-        log.write("return code: {}\n".format(executor.returncode))
-        log.write(executor.stderr+"\n")
+        cmd = ' '.join(str(i) for i in executor.cmd)
+        msg = "command: {}\nreturn code: {}\n{}".format(cmd,executor.returncode,executor.stderr)
+        log.write(msg)
 
       sys.stdout.write(repo+': ')
       if executor.ok():
@@ -198,10 +195,7 @@ class Git():
     tmpl = ['--git-dir={}/.git', '--work-tree={}']
     return map(lambda s: s.format(self.repo_path),tmpl)
 
-def main():
+if __name__ == "__main__":
   dot = Dot()
   dot.parse_args(sys.argv[1:])
   dot.do()
-
-if __name__ == "__main__":
-  main()

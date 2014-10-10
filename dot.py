@@ -7,9 +7,12 @@ import subprocess
 import argparse
 import urllib2
 import ConfigParser
+import json
+from datetime import datetime
 
 CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
 REPOS_PATH    = os.path.join(CONFIG_PATH,'data')
+METADATA_PATH = os.path.join(CONFIG_PATH,'data.json')
 MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
 LOG_PATH      = os.path.join(CONFIG_PATH,'log')
 
@@ -120,8 +123,24 @@ class Dot:
     manifest_data.read(MANIFEST_PATH)
     self.dots = manifest_data.items('all')
 
+  def _load_metadata(self):
+    if os.access(METADATA_PATH,os.R_OK):
+      with open(METADATA_PATH,'r') as m:
+        self.metadata = json.loads(m.read())
+    else:
+        self.metadata = {}
+
+    for repo,_ in self.dots:
+      if not repo in self.metadata: self.metadata[repo]={}
+
+  def _dump_metadata(self):
+    with open(METADATA_PATH,'w') as m:
+      m.write(json.dumps(self.metadata,sort_keys=True,indent=2))
+
   def _in_repos(self,job):
     self._parse_manifest()
+    self._load_metadata()
+
     async = Async()
     for dot in self.dots:
       name, url = dot
@@ -137,9 +156,13 @@ class Dot:
 
       sys.stdout.write(repo+': ')
       if executor.ok():
+        if not 'cloned' in self.metadata[repo]:
+          self.metadata[repo]['cloned']=datetime.utcnow().isoformat()
         yield executor.stdout
       else:
         sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
+
+    self._dump_metadata()
 
 class AsyncExec():
   def __init__(self,cmd):

@@ -68,14 +68,14 @@ class Dot:
 
     self.log_info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
-    for result in self._in_repos(job):
+    for output in self._in_repos(job):
       print 'ok'
 
   def status(self):
     self.log_info('repos status:')
     job = lambda repo,url: Git(repo).status()
-    for result in self._in_repos(job):
-      if len(result)>0:
+    for output in self._in_repos(job):
+      if len(output)>0:
         print "DIRTY"
       else:
         print "clean"
@@ -83,13 +83,13 @@ class Dot:
   def update(self):
     self.log_info('pulling from remotes...')
     job = lambda repo,url: Git(repo).pull()
-    for result in self._in_repos(job):
+    for output in self._in_repos(job):
       print 'ok'
 
   def upload(self):
     self.log_info('pushing to remotes...')
     job = lambda repo,url: Git(repo).push()
-    for result in self._in_repos(job):
+    for output in self._in_repos(job):
       print 'ok'
 
   def chdir(self):

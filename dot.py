@@ -66,6 +66,9 @@ class Dot:
       with open(MANIFEST_PATH,'w') as f:
         f.write(manifest)
 
+    self.clone()
+
+  def clone(self):
     self.log_info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
     for output in self._in_repos(job):

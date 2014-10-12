@@ -83,17 +83,24 @@ class Dot:
 
   def clone(self):
     self._info("started cloning...")
-    job = lambda repo,url: Git().clone(url,repo)
-    for name,cmd,logfile in self._in_repos(job):
-      if cmd.exitcode == 0:
-        self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
-        self._print_result('ok')
+    def job(name,repo,url):
+      if self._has_metadata(name,'cloned'):
+        return False
       else:
-        self._print_result('ERROR!',logfile)
+        return Git().clone(url,repo)
+    for name,cmd,logfile in self._in_repos(job):
+      if cmd.skipped():
+        self._print_result('already cloned')
+      else:
+        if cmd.exitcode == 0:
+          self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
+          self._print_result('ok')
+        else:
+          self._print_result('ERROR!',logfile)
 
   def status(self):
     self._info('repos status:')
-    job = lambda repo,url: Git(repo).status()
+    job = lambda name,repo,url: Git(repo).status()
     for _,cmd,_ in self._in_repos(job):
       if len(cmd.stdout) > 0:
         self._print_result('DIRTY')
@@ -102,7 +109,7 @@ class Dot:
 
   def update(self):
     self._info('pulling from remotes...')
-    job = lambda repo,url: Git(repo).pull()
+    job = lambda name,repo,url: Git(repo).pull()
     for _,cmd,logfile in self._in_repos(job):
       if cmd.exitcode == 0:
         self._print_result('ok')
@@ -111,7 +118,7 @@ class Dot:
 
   def upload(self):
     self._info('pushing to remotes...')
-    job = lambda repo,url: Git(repo).push()
+    job = lambda name,repo,url: Git(repo).push()
     for _,cmd,logfile in self._in_repos(job):
       if cmd.exitcode == 0:
         self._print_result('ok')
@@ -150,6 +157,9 @@ class Dot:
   def _assign_metadata(self,repo,key,value):
     self.metadata[repo][key]=value
 
+  def _has_metadata(self,repo,key):
+    return key in self.metadata[repo]
+
   def _dump_metadata(self):
     with open(METADATA_PATH,'w') as m:
       m.write(json.dumps(self.metadata,sort_keys=True,indent=2))
@@ -162,7 +172,7 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       path = os.path.join(REPOS_PATH,name)
-      async.add(name,job(path,url))
+      async.add(name,job(name,path,url))
 
     for name,executor in async.run():
       logfile = os.path.join(LOG_PATH,name+'.log')
@@ -189,14 +199,16 @@ class Executor():
     self.stderr   = None
     self.exitcode = None
   def start(self):
-    self._process = subprocess.Popen(self.cmd,
-        stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    if self.cmd:
+      self._process = subprocess.Popen(self.cmd,
+          stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     return self
-  def ok(self):
-    return self.exitcode == 0
+  def skipped(self):
+    return self.cmd == False
   def join(self):
-    self.stdout,self.stderr = self._process.communicate()
-    self.exitcode = self._process.returncode
+    if self._process:
+      self.stdout,self.stderr = self._process.communicate()
+      self.exitcode = self._process.returncode
 
 class Async():
   def __init__(self):

@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-
 import os
 import sys
 import subprocess
@@ -18,10 +17,11 @@ LOG_PATH      = os.path.join(CONFIG_PATH,'log')
 
 class Dot:
 
-  def __init__(self):
+  def __init__(self,args):
     self.dots = []
+    self._parse_args(args)
 
-  def parse_args(self,args):
+  def _parse_args(self,args):
     parser = argparse.ArgumentParser()
 
     subparsers = parser.add_subparsers()
@@ -49,19 +49,32 @@ class Dot:
     parser_cd.set_defaults(action='chdir')
     parser_cd.add_argument('dot', type=str)
 
-    self.config = parser.parse_args(args)
+    parsed = parser.parse_args(args)
 
-  def install(self):
-    manifest_url = self.config.manifest
+    self.action   = parsed.action
+    self.manifest = lambda: parsed.manifest
 
+  def do(self):
+    if self.action   == 'install':
+      self.install(self.manifest())
+    elif self.action == 'status':
+      self.status()
+    elif self.action == 'update':
+      self.update()
+    elif self.action == 'upload':
+      self.upload()
+    elif self.action == 'chdir':
+      self.chdir()
+
+  def install(self,manifest_url):
     os.mkdir(CONFIG_PATH)
     os.mkdir(LOG_PATH)
 
     if os.access(MANIFEST_PATH,os.R_OK):
-      self.log_error("sorry, manifest file already exists")
+      self._error("sorry, manifest file already exists")
       exit(1)
     else:
-      self.log_info('downloading manifest from "{}"...'.format(manifest_url))
+      self._info('downloading manifest from "{}"...'.format(manifest_url))
       manifest = urllib2.urlopen(manifest_url).read()
       with open(MANIFEST_PATH,'w') as f:
         f.write(manifest)
@@ -69,13 +82,13 @@ class Dot:
     self.clone()
 
   def clone(self):
-    self.log_info("started cloning...")
+    self._info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
     for output in self._in_repos(job):
       print 'ok'
 
   def status(self):
-    self.log_info('repos status:')
+    self._info('repos status:')
     job = lambda repo,url: Git(repo).status()
     for output in self._in_repos(job):
       if len(output)>0:
@@ -84,13 +97,13 @@ class Dot:
         print "clean"
 
   def update(self):
-    self.log_info('pulling from remotes...')
+    self._info('pulling from remotes...')
     job = lambda repo,url: Git(repo).pull()
     for output in self._in_repos(job):
       print 'ok'
 
   def upload(self):
-    self.log_info('pushing to remotes...')
+    self._info('pushing to remotes...')
     job = lambda repo,url: Git(repo).push()
     for output in self._in_repos(job):
       print 'ok'
@@ -103,22 +116,10 @@ class Dot:
         #os.chdir(repo)
         print repo
 
-  def do(self):
-    if self.config.action == 'install':
-      self.install()
-    elif self.config.action == 'status':
-      self.status()
-    elif self.config.action == 'update':
-      self.update()
-    elif self.config.action == 'upload':
-      self.upload()
-    elif self.config.action == 'chdir':
-      self.chdir()
-
-  def log_info(self,text):
+  def _info(self,text):
     sys.stdout.write(". "+text+"\n")
 
-  def log_error(self,text):
+  def _error(self,text):
     sys.stderr.write(". "+text+"\n")
 
   def _parse_manifest(self):
@@ -147,55 +148,55 @@ class Dot:
     async = Async()
     for dot in self.dots:
       name, url = dot
-      repo = os.path.join(REPOS_PATH,name)
-      async.add(job(repo,url),name)
+      path = os.path.join(REPOS_PATH,name)
+      async.add(name,job(path,url))
 
-    for repo,executor in async.run():
-      logfile = os.path.join(LOG_PATH,repo+'.log')
+    for name,executor in async.run():
+      logfile = os.path.join(LOG_PATH,name+'.log')
       with open(logfile,'w') as log:
         cmd = ' '.join(str(i) for i in executor.cmd)
-        msg = "command: {}\nreturn code: {}\n{}".format(cmd,executor.returncode,executor.stderr)
+        msg = "command: {}\nreturn code: {}\n{}".format(cmd,executor.exitcode,executor.stderr)
         log.write(msg)
 
-      sys.stdout.write(repo+': ')
+      sys.stdout.write(name+': ')
       if executor.ok():
-        if not 'cloned' in self.metadata[repo]:
-          self.metadata[repo]['cloned']=datetime.utcnow().isoformat()
+        if not 'cloned' in self.metadata[name]:
+          self.metadata[name]['cloned']=datetime.utcnow().isoformat()
         yield executor.stdout
       else:
         sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
 
     self._dump_metadata()
 
-class AsyncExec():
+class Executor():
   def __init__(self,cmd):
     self.cmd      = cmd
     self._process = None
     self.stdout   = None
     self.stderr   = None
-    self.returncode = None
+    self.exitcode = None
   def start(self):
     self._process = subprocess.Popen(self.cmd,
         stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     return self
   def ok(self):
-    return self.returncode == 0
+    return self.exitcode == 0
   def join(self):
     self.stdout,self.stderr = self._process.communicate()
-    self.returncode = self._process.returncode
+    self.exitcode = self._process.returncode
 
 class Async():
   def __init__(self):
     self.cmds={}
-  def add(self,cmd,index):
-    self.cmds[index]=cmd
+  def add(self,name,cmd):
+    self.cmds[name]=cmd
   def run(self):
     subprocesses = {}
-    for index,cmd in self.cmds.iteritems():
-      subprocesses[index]=AsyncExec(cmd).start()
+    for name,cmd in self.cmds.iteritems():
+      subprocesses[name]=Executor(cmd).start()
     for t in subprocesses.itervalues(): t.join()
-    for index,executor in subprocesses.iteritems():
-      yield index,executor
+    for name,executor in subprocesses.iteritems():
+      yield name,executor
 
 class Git():
 
@@ -222,6 +223,4 @@ class Git():
     return map(lambda s: s.format(self.repo_path),tmpl)
 
 if __name__ == "__main__":
-  dot = Dot()
-  dot.parse_args(sys.argv[1:])
-  dot.do()
+  Dot(sys.argv[1:]).do()

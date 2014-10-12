@@ -84,14 +84,14 @@ class Dot:
   def clone(self):
     self._info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
-    for output in self._in_repos(job):
+    for _ in self._in_repos(job):
       print 'ok'
 
   def status(self):
     self._info('repos status:')
     job = lambda repo,url: Git(repo).status()
-    for output in self._in_repos(job):
-      if len(output)>0:
+    for _,cmd in self._in_repos(job):
+      if len(cmd.stdout)>0:
         print "DIRTY"
       else:
         print "clean"
@@ -99,13 +99,13 @@ class Dot:
   def update(self):
     self._info('pulling from remotes...')
     job = lambda repo,url: Git(repo).pull()
-    for output in self._in_repos(job):
+    for _ in self._in_repos(job):
       print 'ok'
 
   def upload(self):
     self._info('pushing to remotes...')
     job = lambda repo,url: Git(repo).push()
-    for output in self._in_repos(job):
+    for _ in self._in_repos(job):
       print 'ok'
 
   def chdir(self):
@@ -162,7 +162,7 @@ class Dot:
       if executor.ok():
         if not 'cloned' in self.metadata[name]:
           self.metadata[name]['cloned']=datetime.utcnow().isoformat()
-        yield executor.stdout
+        yield name,executor
       else:
         sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
 

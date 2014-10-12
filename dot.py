@@ -84,29 +84,39 @@ class Dot:
   def clone(self):
     self._info("started cloning...")
     job = lambda repo,url: Git().clone(url,repo)
-    for _ in self._in_repos(job):
-      print 'ok'
+    for name,cmd,logfile in self._in_repos(job):
+      if cmd.exitcode == 0:
+        self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
+        self._print_result('ok')
+      else:
+        self._print_result('ERROR!',logfile)
 
   def status(self):
     self._info('repos status:')
     job = lambda repo,url: Git(repo).status()
-    for _,cmd in self._in_repos(job):
-      if len(cmd.stdout)>0:
-        print "DIRTY"
+    for _,cmd,_ in self._in_repos(job):
+      if len(cmd.stdout) > 0:
+        self._print_result('DIRTY')
       else:
-        print "clean"
+        self._print_result("clean")
 
   def update(self):
     self._info('pulling from remotes...')
     job = lambda repo,url: Git(repo).pull()
-    for _ in self._in_repos(job):
-      print 'ok'
+    for _,cmd,logfile in self._in_repos(job):
+      if cmd.exitcode == 0:
+        self._print_result('ok')
+      else:
+        self._print_result('ERROR!',logfile)
 
   def upload(self):
     self._info('pushing to remotes...')
     job = lambda repo,url: Git(repo).push()
-    for _ in self._in_repos(job):
-      print 'ok'
+    for _,cmd,logfile in self._in_repos(job):
+      if cmd.exitcode == 0:
+        self._print_result('ok')
+      else:
+        self._print_result('ERROR!',logfile)
 
   def chdir(self):
     for dot in self.dots:
@@ -137,6 +147,9 @@ class Dot:
     for repo,_ in self.dots:
       if not repo in self.metadata: self.metadata[repo]={}
 
+  def _assign_metadata(self,repo,key,value):
+    self.metadata[repo][key]=value
+
   def _dump_metadata(self):
     with open(METADATA_PATH,'w') as m:
       m.write(json.dumps(self.metadata,sort_keys=True,indent=2))
@@ -159,14 +172,14 @@ class Dot:
         log.write(msg)
 
       sys.stdout.write(name+': ')
-      if executor.ok():
-        if not 'cloned' in self.metadata[name]:
-          self.metadata[name]['cloned']=datetime.utcnow().isoformat()
-        yield name,executor
-      else:
-        sys.stdout.write("ERROR! check out logfile: {}".format(logfile)+"\n")
+      yield name,executor,logfile
 
     self._dump_metadata()
+
+  def _print_result(self,text,logfile=None):
+    if logfile:
+      text = text + ' check out logfile: {}'.format(logfile)
+    sys.stdout.write(text+"\n")
 
 class Executor():
   def __init__(self,cmd):

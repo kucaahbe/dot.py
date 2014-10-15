@@ -89,12 +89,9 @@ class Dot:
 
   def clone(self):
     self._info("started cloning...")
-    def job(name,repo,url):
-      if self._has_metadata(name,'cloned'):
-        return False
-      else:
-        return Git().clone(url,repo)
-    for name,cmd,logfile in self._in_repos(job):
+    job  = lambda name,repo,url: Git().clone(url,repo)
+    skip = lambda self,name: not self._skip_cloned(name)
+    for name,cmd,logfile in self._in_repos(job,skip):
       if cmd.skipped():
         self._print_result('already cloned')
       else:
@@ -108,28 +105,37 @@ class Dot:
     self._info('repos status:')
     job = lambda name,repo,url: Git(repo).status()
     for _,cmd,_ in self._in_repos(job):
-      if len(cmd.stdout) > 0:
-        self._print_result('DIRTY')
+      if cmd.skipped():
+        self._print_result('SKIPPED (seems does not cloned yet)')
       else:
-        self._print_result("clean")
+        if len(cmd.stdout) > 0:
+          self._print_result('DIRTY')
+        else:
+          self._print_result("clean")
 
   def update(self):
     self._info('pulling from remotes...')
     job = lambda name,repo,url: Git(repo).pull()
     for _,cmd,logfile in self._in_repos(job):
-      if cmd.exitcode == 0:
-        self._print_result('ok')
+      if cmd.skipped():
+        self._print_result('SKIPPED (seems does not cloned yet)')
       else:
-        self._print_result('ERROR!',logfile)
+        if cmd.exitcode == 0:
+          self._print_result('ok')
+        else:
+          self._print_result('ERROR!',logfile)
 
   def upload(self):
     self._info('pushing to remotes...')
     job = lambda name,repo,url: Git(repo).push()
     for _,cmd,logfile in self._in_repos(job):
-      if cmd.exitcode == 0:
-        self._print_result('ok')
+      if cmd.skipped():
+        self._print_result('SKIPPED (seems does not cloned yet)')
       else:
-        self._print_result('ERROR!',logfile)
+        if cmd.exitcode == 0:
+          self._print_result('ok')
+        else:
+          self._print_result('ERROR!',logfile)
 
   def chdir(self):
     for dot in self.dots:
@@ -170,7 +176,10 @@ class Dot:
     with open(METADATA_PATH,'w') as m:
       m.write(json.dumps(self.metadata,sort_keys=True,indent=2))
 
-  def _in_repos(self,job):
+  def _skip_cloned(self,name):
+    return not self._has_metadata(name,'cloned')
+
+  def _in_repos(self,job,skip=_skip_cloned):
     self._parse_manifest()
     self._load_metadata()
 
@@ -178,14 +187,20 @@ class Dot:
     for dot in self.dots:
       name, url = dot
       path = os.path.join(REPOS_PATH,name)
-      async.add(name,job(name,path,url))
+
+      if skip(self,name):
+        async.add(name,False)
+      else:
+        async.add(name,job(name,path,url))
 
     for name,executor in async.run():
       logfile = os.path.join(LOG_PATH,name+'.log')
-      with open(logfile,'w') as log:
+      if executor.skipped():
+        msg = "command execution was skipped\n"
+      else:
         cmd = ' '.join(str(i) for i in executor.cmd)
         msg = "command: {}\nreturn code: {}\n{}".format(cmd,executor.exitcode,executor.stderr)
-        log.write(msg)
+      with open(logfile,'w') as log: log.write(msg)
 
       sys.stdout.write(name+': ')
       yield name,executor,logfile

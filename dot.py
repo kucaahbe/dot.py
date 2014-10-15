@@ -48,6 +48,12 @@ class Dot:
         help="upload changes")
     parser_push.set_defaults(action='upload')
 
+    parser_ok = subparsers.add_parser('ok',
+        help="ok stuff")
+    parser_ok.set_defaults(action='ok')
+    parser_ok.add_argument('repo', type=str,
+        help='repo name')
+
     parser_cd = subparsers.add_parser('cd',
         help="cd into config directory")
     parser_cd.set_defaults(action='chdir')
@@ -57,6 +63,7 @@ class Dot:
 
     self.action   = parsed.action
     self.manifest = lambda: parsed.manifest
+    self.ok_repo_name = lambda: parsed.repo
 
   def do(self):
     if self.action   == 'install':
@@ -69,6 +76,8 @@ class Dot:
       self.update()
     elif self.action == 'upload':
       self.upload()
+    elif self.action == 'ok':
+      self.set_cloned(self.ok_repo_name())
     elif self.action == 'chdir':
       self.chdir()
 
@@ -96,7 +105,7 @@ class Dot:
         self._print_result('already cloned')
       else:
         if cmd.exitcode == 0:
-          self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
+          self._make_cloned(name)
           self._print_result('ok')
         else:
           self._print_result('ERROR!',logfile)
@@ -136,6 +145,15 @@ class Dot:
           self._print_result('ok')
         else:
           self._print_result('ERROR!',logfile)
+
+  def set_cloned(self,repo_name):
+    self._parse_manifest()
+    self._load_metadata()
+    if repo_name in self.metadata:
+      self._make_cloned(repo_name)
+      self._dump_metadata()
+    else:
+      self._error("unknown repo: {}".format(repo_name))
 
   def chdir(self):
     for dot in self.dots:
@@ -178,6 +196,9 @@ class Dot:
 
   def _skip_cloned(self,name):
     return not self._has_metadata(name,'cloned')
+
+  def _make_cloned(self,name):
+    self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
 
   def _in_repos(self,job,skip=_skip_cloned):
     self._parse_manifest()

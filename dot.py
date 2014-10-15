@@ -32,6 +32,10 @@ class Dot:
     parser_install.add_argument('manifest', type=str,
         help='path or url of manifest file')
 
+    parser_clone = subparsers.add_parser('c',
+        help="clone missing stuff")
+    parser_clone.set_defaults(action='clone')
+
     parser_status = subparsers.add_parser('s',
         help="get git status")
     parser_status.set_defaults(action='status')
@@ -57,6 +61,8 @@ class Dot:
   def do(self):
     if self.action   == 'install':
       self.install(self.manifest())
+    elif self.action == 'clone':
+      self.clone()
     elif self.action == 'status':
       self.status()
     elif self.action == 'update':

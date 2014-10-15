@@ -10,8 +10,8 @@ import json
 from datetime import datetime
 
 CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
-REPOS_PATH    = os.path.join(CONFIG_PATH,'data')
-METADATA_PATH = os.path.join(CONFIG_PATH,'data.json')
+REPOS_PATH    = os.path.join(CONFIG_PATH,'repos')
+METADATA_PATH = os.path.join(CONFIG_PATH,'repos.json')
 MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
 LOG_PATH      = os.path.join(CONFIG_PATH,'log')
 

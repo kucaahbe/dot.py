@@ -170,9 +170,13 @@ class Dot:
     sys.stderr.write(". "+text+"\n")
 
   def _parse_manifest(self):
-    manifest_data = ConfigParser.ConfigParser()
-    manifest_data.read(MANIFEST_PATH)
-    self.dots = manifest_data.items('all')
+    if os.access(MANIFEST_PATH,os.R_OK):
+      manifest_data = ConfigParser.ConfigParser()
+      manifest_data.read(MANIFEST_PATH)
+      self.dots = manifest_data.items('all')
+    else:
+      self._error("manifest file {} does not exist".format(MANIFEST_PATH))
+      exit(1)
 
   def _load_metadata(self):
     if os.access(METADATA_PATH,os.R_OK):

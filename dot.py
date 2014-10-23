@@ -59,6 +59,10 @@ class Dot:
     parser_cd.set_defaults(action='chdir')
     parser_cd.add_argument('dot', type=str)
 
+    parser_push = subparsers.add_parser('self-update',
+        help="update self")
+    parser_push.set_defaults(action='self-update')
+
     parsed = parser.parse_args(args)
 
     self.action   = parsed.action
@@ -80,6 +84,8 @@ class Dot:
       self.set_cloned(self.ok_repo_name())
     elif self.action == 'chdir':
       self.chdir()
+    elif self.action == 'self-update':
+      self.self_update()
 
   def install(self,manifest_url):
     os.mkdir(CONFIG_PATH)
@@ -162,6 +168,15 @@ class Dot:
       if self.config.dot == name:
         #os.chdir(repo)
         print repo
+
+  def self_update(self):
+    self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'
+    self._info('downloading self from "{}"...'.format(self_url))
+    self_code = urllib2.urlopen(self_url).read()
+    self_path = sys.argv[0]
+    with open(self_path,'w') as f:
+      f.write(self_code)
+    self._info('successfully updated')
 
   def _info(self,text):
     sys.stdout.write(". "+text+"\n")

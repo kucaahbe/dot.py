@@ -57,7 +57,8 @@ class Dot:
     parser_cd = subparsers.add_parser('cd',
         help="cd into config directory")
     parser_cd.set_defaults(action='chdir')
-    parser_cd.add_argument('dot', type=str)
+    parser_cd.add_argument('repo', type=str,
+        help='repo name')
 
     parser_push = subparsers.add_parser('self-update',
         help="update self")
@@ -67,7 +68,7 @@ class Dot:
 
     self.action   = parsed.action
     self.manifest = lambda: parsed.manifest
-    self.ok_repo_name = lambda: parsed.repo
+    self.current_repo = lambda: parsed.repo
 
   def do(self):
     if self.action   == 'install':
@@ -81,9 +82,9 @@ class Dot:
     elif self.action == 'upload':
       self.upload()
     elif self.action == 'ok':
-      self.set_cloned(self.ok_repo_name())
+      self.set_cloned(self.current_repo())
     elif self.action == 'chdir':
-      self.chdir()
+      self.chdir(self.current_repo())
     elif self.action == 'self-update':
       self.self_update()
 
@@ -161,13 +162,16 @@ class Dot:
     else:
       self._error("unknown repo: {}".format(repo_name))
 
-  def chdir(self):
-    for dot in self.dots:
-      name, url = dot
-      repo = os.path.join(CONFIG_PATH,name)
-      if self.config.dot == name:
-        #os.chdir(repo)
-        print repo
+  def chdir(self,repo):
+    self._parse_manifest()
+    self._load_metadata()
+    for name,_ in self.dots:
+      repo_path = os.path.join(REPOS_PATH,name)
+      if repo == name:
+        os.chdir(repo_path)
+        subprocess.Popen(['x-terminal-emulator'])
+        exit(0)
+    self._error('repo {} does not exists'.format(repo))
 
   def self_update(self):
     self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'

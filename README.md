@@ -20,6 +20,12 @@ Install
 =======
 
 ```sh
+curl https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py -o ~/bin/dot && chmod +x ~/bin/dot
+```
+
+or
+
+```sh
 wget https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py -O ~/bin/dot && chmod +x ~/bin/dot
 ```
 

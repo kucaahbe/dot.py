@@ -169,7 +169,16 @@ class Dot:
       repo_path = os.path.join(REPOS_PATH,name)
       if repo == name:
         os.chdir(repo_path)
-        subprocess.Popen(['x-terminal-emulator'])
+        platform = sys.platform
+        command = None
+        if platform == 'linux2':
+          command = ['x-terminal-emulator']
+        elif platform == 'darwin':
+          command = ['open','-b','com.apple.terminal','.']
+        else:
+          self._error("don't know how to open terminal on {} platform".format(platform))
+          exit(1)
+        subprocess.Popen(command)
         exit(0)
     self._error('repo {} does not exists'.format(repo))
 

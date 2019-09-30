@@ -4,10 +4,14 @@ import os
 import sys
 import subprocess
 import argparse
-import urllib2
-import ConfigParser
 import json
 from datetime import datetime
+if (sys.version_info > (3, 0)):
+    from urllib.request import urlopen
+    from configparser import ConfigParser
+else:
+    import ConfigParser
+    from urllib2 import urlopen
 
 CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
 REPOS_PATH    = os.path.join(CONFIG_PATH,'repos')
@@ -97,7 +101,7 @@ class Dot:
       exit(1)
     else:
       self._info('downloading manifest from "{}"...'.format(manifest_url))
-      manifest = urllib2.urlopen(manifest_url).read()
+      manifest = urlopen(manifest_url).read()
       with open(MANIFEST_PATH,'w') as f:
         f.write(manifest)
 
@@ -185,7 +189,7 @@ class Dot:
   def self_update(self):
     self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'
     self._info('downloading self from "{}"...'.format(self_url))
-    self_code = urllib2.urlopen(self_url).read()
+    self_code = urlopen(self_url).read()
     self_path = sys.argv[0]
     with open(self_path,'w') as f:
       f.write(self_code)
@@ -236,17 +240,17 @@ class Dot:
     self._parse_manifest()
     self._load_metadata()
 
-    async = Async()
+    jobs = Async()
     for dot in self.dots:
       name, url = dot
       path = os.path.join(REPOS_PATH,name)
 
       if skip(self,name):
-        async.add(name,False)
+        jobs.add(name,False)
       else:
-        async.add(name,job(name,path,url))
+        jobs.add(name,job(name,path,url))
 
-    for name,executor in async.run():
+    for name,executor in jobs.run():
       logfile = os.path.join(LOG_PATH,name+'.log')
       if executor.skipped():
         msg = "command execution was skipped\n"

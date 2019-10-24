@@ -10,9 +10,11 @@ from datetime import datetime
 from enum import Enum
 if sys.version_info > (3, 0):
   from urllib.request import urlopen
+  from urllib.parse import urlparse
   from configparser import ConfigParser
 else:
   from urllib2 import urlopen
+  from urlparse import urlparse
   import ConfigParser
 
 class Dotfiles:
@@ -46,7 +48,6 @@ class Dotfiles:
       print_usage()
 
   def add(self, url):
-    from urllib.parse import urlparse
     uri = urlparse(url)
     name = uri.path.split('/')[-1].split('.')[-2] # FIXME
 
@@ -65,7 +66,7 @@ class Dotfiles:
 
     self.out.info('repos status:')
     self.out.info('')
-    for name, dot in I(self.dots, Dot.check):
+    for name, dot in AsyncDo(self.dots, Dot.check):
       self.out.info(name + "\t" + dot.state.name)
 
   def update(self):
@@ -73,7 +74,7 @@ class Dotfiles:
 
     self.out.info('pulling from remotes...')
     self.out.info('')
-    for name, dot in I(self.dots, Dot.update):
+    for name, dot in AsyncDo(self.dots, Dot.update):
       self.out.info(name + "\t" + dot.state.name)
 
     self.__update_state()
@@ -172,7 +173,7 @@ class Dotfiles:
         url = details['url'],
         path = details['path'],
         revision = details['revision'],
-        updated_on = details['updated_on']
+        updated_on = details['updated_on'] and datetime.strptime(details['updated_on'], '%Y-%m-%dT%H:%M:%S.%f')
       )
 
   def __update_state(self):
@@ -181,11 +182,11 @@ class Dotfiles:
       state[name] = {
         'url': dot.url,
         'path': dot.path,
-        'revision': dot.revision,
-        'updated_on': dot.updated_on
+        'revision': dot.revision and dot.revision.decode('utf-8'),
+        'updated_on': dot.updated_on and dot.updated_on.isoformat()
       }
-    with open(self.STATE_FILE, 'w') as f:
-      f.write(json.dumps(state))
+    data = json.dumps(state)
+    with open(self.STATE_FILE, 'w') as f: f.write(data)
 
   def _make_cloned(self,name):
     self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
@@ -203,18 +204,21 @@ class Dot:
 
   def check(self):
     self.state = self.State.BLANK
-    if os.access(os.path.join(self.path, '.git'), os.R_OK) and os.system(' '.join(self.vcs.status())) == 0: # FIXME hardocde
+    if self.vcs.exists() and os.system(' '.join(self.vcs.status())) == 0: # FIXME hardocde
       self.state = self.State.EXISTS
 
   def update(self):
     self.check()
     success = None
     if self.state == self.State.BLANK:
-      success = self.__action(self.vcs.clone(self.url, self.path))
+      success = self.__action(self.vcs.clone(self.url))
     else:
       success = self.__action(self.vcs.pull())
 
-    if success: self.state = self.State.EXISTS
+    if success:
+      cmd = Cmd(self.vcs.revision()).invoke()
+      self.revision = cmd.stdout.strip()
+      self.state = self.State.EXISTS
 
   def __action(self, command):
     cmd = Cmd(command).invoke()
@@ -242,7 +246,7 @@ class Cmd:
 
   def success(self): return self.exitcode == 0
 
-class I:
+class AsyncDo:
   def __init__(self, items, func):
     self.items = items
     self.func = func
@@ -268,9 +272,13 @@ class I:
     for thread in self.threads: thread.join()
 
 class Git:
-  def __init__(self, path): self.repo_path = path
+  __CMD = ['git']
 
-  def clone(self, url, repo): return ['git', 'clone', '--quiet', '--recursive', '--', url, repo]
+  def __init__(self, path): self.path = path
+
+  def clone(self, url): return self.__CMD + ['clone', '--quiet', '--recursive', '--', url, self.path]
+
+  def exists(self): return os.access(os.path.join(self.path, '.git'), os.R_OK)
 
   def pull(self): return self.__base() + ['pull']
 
@@ -278,12 +286,14 @@ class Git:
 
   def status(self): return self.__base() + ['status', '--porcelain']
 
-  def __base(self):
-    return ['git'] + self._git_path_opts()
+  def revision(self): return self.__base() + ['rev-parse', 'HEAD']
 
-  def _git_path_opts(self):
+  def __base(self):
+    return self.__CMD + self.__path_settings()
+
+  def __path_settings(self):
     tmpl = ['--git-dir={}/.git', '--work-tree={}']
-    return list(map(lambda s: s.format(self.repo_path),tmpl))
+    return [t.format(self.path) for t in tmpl]
 
 class Log:
   def info(self, text): sys.stdout.write(". "+text+"\n")

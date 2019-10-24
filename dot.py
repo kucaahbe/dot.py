@@ -7,10 +7,10 @@ import threading
 import argparse
 import json
 from datetime import datetime
+from enum import Enum
 if (sys.version_info > (3, 0)):
     from urllib.request import urlopen
     from configparser import ConfigParser
-    from enum import Enum
 else:
     import ConfigParser
     from urllib2 import urlopen
@@ -18,8 +18,8 @@ else:
 class Dotfiles:
   __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [os.getenv('HOME'), '.local', 'share']
 
-  DATA_PATH    = os.path.join(*__XDG_DATA_HOME, 'dotfiles')
-  STATE_FILE   = os.path.join(*__XDG_DATA_HOME, 'dotfiles.state')
+  DATA_PATH    = os.path.join(*(__XDG_DATA_HOME + ['dotfiles']))
+  STATE_FILE   = os.path.join(*(__XDG_DATA_HOME + ['dotfiles.state']))
 
   def __init__(self):
     self.dots = {}
@@ -70,6 +70,7 @@ class Dotfiles:
     self.__load_state()
 
     self.out.info('pulling from remotes...')
+    self.out.info('')
     for name, dot in I(self.dots, Dot.update):
       self.out.info(name + "\t" + dot.state.name)
 
@@ -204,7 +205,6 @@ class Dot:
   def update(self):
       self.check()
       success = None
-      print(self.path)
       if self.state == self.State.BLANK:
           success = self.__action(self.vcs.clone(self.url, self.path))
       else:
@@ -253,6 +253,7 @@ class I():
     def __next__(self):
         n = next(self.i)
         return n, self.items[n]
+    next = __next__
 
     def __start(self):
         if self.threads: return

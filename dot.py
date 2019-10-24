@@ -8,12 +8,12 @@ import argparse
 import json
 from datetime import datetime
 from enum import Enum
-if (sys.version_info > (3, 0)):
-    from urllib.request import urlopen
-    from configparser import ConfigParser
+if sys.version_info > (3, 0):
+  from urllib.request import urlopen
+  from configparser import ConfigParser
 else:
-    import ConfigParser
-    from urllib2 import urlopen
+  from urllib2 import urlopen
+  import ConfigParser
 
 class Dotfiles:
   __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [os.getenv('HOME'), '.local', 'share']
@@ -26,7 +26,7 @@ class Dotfiles:
     self.out = Log()
 
   def manage(self, args):
-    pargs = self.__parse_args(args)
+    pargs, print_usage = self.__parse_args(args)
 
     if pargs.command == 'status':
       self.status()
@@ -42,6 +42,8 @@ class Dotfiles:
     #  self.chdir(self.current_repo())
     #elif pargs.command == 'self-update':
     #  self.self_update()
+    else:
+      print_usage()
 
   def add(self, url):
     from urllib.parse import urlparse
@@ -73,6 +75,8 @@ class Dotfiles:
     self.out.info('')
     for name, dot in I(self.dots, Dot.update):
       self.out.info(name + "\t" + dot.state.name)
+
+    self.__update_state()
 
   def upload(self):
     self._info('pushing to remotes...')
@@ -146,7 +150,7 @@ class Dotfiles:
     #    help='update self')
     #parser_push.set_defaults(action='self-update')
 
-    return ap.parse_args(args)
+    return ap.parse_args(args), ap.print_usage
 
   def self_update(self):
     self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'
@@ -203,83 +207,78 @@ class Dot:
       self.state = self.State.EXISTS
 
   def update(self):
-      self.check()
-      success = None
-      if self.state == self.State.BLANK:
-          success = self.__action(self.vcs.clone(self.url, self.path))
-      else:
-          success = self.__action(self.vcs.pull())
+    self.check()
+    success = None
+    if self.state == self.State.BLANK:
+      success = self.__action(self.vcs.clone(self.url, self.path))
+    else:
+      success = self.__action(self.vcs.pull())
 
-      if success: self.state = self.State.EXISTS
+    if success: self.state = self.State.EXISTS
 
   def __action(self, command):
-      cmd = Cmd(command).invoke()
-      if cmd.success:
-          self.last_error = cmd.stderr
-      self.updated_on = datetime.utcnow()
-      return cmd.success
+    cmd = Cmd(command).invoke()
+    if not cmd.success:
+      self.last_error = cmd.stderr
+    self.updated_on = datetime.utcnow()
+    return cmd.success
 
 class Cmd:
-    def __init__(self, cmd):
-        self.cmd = cmd
-        self.stdout   = None
-        self.stderr   = None
-        self.exitcode = None
+  def __init__(self, cmd):
+    self.cmd = cmd
+    self.stdout   = None
+    self.stderr   = None
+    self.exitcode = None
 
-    def invoke(self):
-      process = subprocess.Popen(
-          self.cmd,
-          stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE
-      )
-      self.stdout, self.stderr = process.communicate()
-      self.exitcode = process.returncode
-      return self
+  def invoke(self):
+    process = subprocess.Popen(
+      self.cmd,
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE
+    )
+    self.stdout, self.stderr = process.communicate()
+    self.exitcode = process.returncode
+    return self
 
-    def success(self): return self.exitcode == 0
+  def success(self): return self.exitcode == 0
 
-class I():
-    def __init__(self, items, func):
-        self.items = items
-        self.func = func
-        self.threads = []
+class I:
+  def __init__(self, items, func):
+    self.items = items
+    self.func = func
+    self.threads = []
 
-    def __iter__(self):
-        self.__start()
-        self.i = iter(self.items)
+  def __iter__(self):
+    self.__start()
+    self.i = iter(self.items)
 
-        return self
+    return self
 
-    def __next__(self):
-        n = next(self.i)
-        return n, self.items[n]
-    next = __next__
+  def __next__(self):
+    n = next(self.i)
+    return n, self.items[n]
+  next = __next__
 
-    def __start(self):
-        if self.threads: return
-        for name in self.items:
-            t = threading.Thread(target=self.func, args=(self.items[name],))
-            self.threads.append(t)
-            t.start()
-        for thread in self.threads: thread.join()
+  def __start(self):
+    if self.threads: return
+    for name in self.items:
+      t = threading.Thread(target=self.func, args=(self.items[name],))
+      self.threads.append(t)
+      t.start()
+    for thread in self.threads: thread.join()
 
-class Git():
-  def __init__(self,path=None):
-    self.repo_path = path
+class Git:
+  def __init__(self, path): self.repo_path = path
 
-  def clone(self,url,repo):
-    return ['git', 'clone', '-q', '--recursive', '--', url, repo]
+  def clone(self, url, repo): return ['git', 'clone', '--quiet', '--recursive', '--', url, repo]
 
-  def pull(self):
-    return self._git() + ['pull']
+  def pull(self): return self.__base() + ['pull']
 
-  def push(self):
-    return self._git() + ['push']
+  def push(self): return self.__base() + ['push']
 
-  def status(self):
-    return self._git() + ['status', '--porcelain']
+  def status(self): return self.__base() + ['status', '--porcelain']
 
-  def _git(self):
+  def __base(self):
     return ['git'] + self._git_path_opts()
 
   def _git_path_opts(self):
@@ -290,5 +289,4 @@ class Log:
   def info(self, text): sys.stdout.write(". "+text+"\n")
   def error(self, text): sys.stderr.write(". "+text+"\n")
 
-if __name__ == '__main__':
-  Dotfiles().manage(sys.argv[1:])
+if __name__ == '__main__': Dotfiles().manage(sys.argv[1:])

@@ -3,147 +3,75 @@
 import os
 import sys
 import subprocess
+import threading
 import argparse
 import json
 from datetime import datetime
 if (sys.version_info > (3, 0)):
     from urllib.request import urlopen
     from configparser import ConfigParser
+    from enum import Enum
 else:
     import ConfigParser
     from urllib2 import urlopen
 
-CONFIG_PATH   = os.path.join(os.getenv('HOME'),'.dot')
-REPOS_PATH    = os.path.join(CONFIG_PATH,'repos')
-METADATA_PATH = os.path.join(CONFIG_PATH,'repos.json')
-MANIFEST_PATH = os.path.join(CONFIG_PATH,'manifest.ini')
-LOG_PATH      = os.path.join(CONFIG_PATH,'log')
+class Dotfiles:
+  __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [os.getenv('HOME'), '.local', 'share']
 
-class Dot:
+  DATA_PATH    = os.path.join(*__XDG_DATA_HOME, 'dotfiles')
+  STATE_FILE   = os.path.join(*__XDG_DATA_HOME, 'dotfiles.state')
 
-  def __init__(self,args):
-    self.dots = []
-    self._parse_args(args)
+  def __init__(self):
+    self.dots = {}
+    self.out = Log()
 
-  def _parse_args(self,args):
-    parser = argparse.ArgumentParser()
+  def manage(self, args):
+    pargs = self.__parse_args(args)
 
-    subparsers = parser.add_subparsers()
-
-    parser_install = subparsers.add_parser('i',
-        help="install stuff")
-    parser_install.set_defaults(action='install')
-    parser_install.add_argument('manifest', type=str,
-        help='path or url of manifest file')
-
-    parser_clone = subparsers.add_parser('c',
-        help="clone missing stuff")
-    parser_clone.set_defaults(action='clone')
-
-    parser_status = subparsers.add_parser('s',
-        help="get git status")
-    parser_status.set_defaults(action='status')
-
-    parser_pull = subparsers.add_parser('u',
-        help="update configs")
-    parser_pull.set_defaults(action='update')
-
-    parser_push = subparsers.add_parser('p',
-        help="upload changes")
-    parser_push.set_defaults(action='upload')
-
-    parser_ok = subparsers.add_parser('ok',
-        help="ok stuff")
-    parser_ok.set_defaults(action='ok')
-    parser_ok.add_argument('repo', type=str,
-        help='repo name')
-
-    parser_cd = subparsers.add_parser('cd',
-        help="cd into config directory")
-    parser_cd.set_defaults(action='chdir')
-    parser_cd.add_argument('repo', type=str,
-        help='repo name')
-
-    parser_push = subparsers.add_parser('self-update',
-        help="update self")
-    parser_push.set_defaults(action='self-update')
-
-    parsed = parser.parse_args(args)
-
-    self.action   = parsed.action
-    self.manifest = lambda: parsed.manifest
-    self.current_repo = lambda: parsed.repo
-
-  def do(self):
-    if self.action   == 'install':
-      self.install(self.manifest())
-    elif self.action == 'clone':
-      self.clone()
-    elif self.action == 'status':
+    if pargs.command == 'status':
       self.status()
-    elif self.action == 'update':
+    elif pargs.command == 'add':
+      self.add(pargs.url)
+    elif pargs.command == 'update':
       self.update()
-    elif self.action == 'upload':
-      self.upload()
-    elif self.action == 'ok':
-      self.set_cloned(self.current_repo())
-    elif self.action == 'chdir':
-      self.chdir(self.current_repo())
-    elif self.action == 'self-update':
-      self.self_update()
+    #elif pargs.command == 'upload':
+    #  self.upload()
+    #elif pargs.command == 'ok':
+    #  self.set_cloned(self.current_repo())
+    #elif pargs.command == 'chdir':
+    #  self.chdir(self.current_repo())
+    #elif pargs.command == 'self-update':
+    #  self.self_update()
 
-  def install(self,manifest_url):
-    os.mkdir(CONFIG_PATH)
-    os.mkdir(LOG_PATH)
+  def add(self, url):
+    from urllib.parse import urlparse
+    uri = urlparse(url)
+    name = uri.path.split('/')[-1].split('.')[-2] # FIXME
 
-    if os.access(MANIFEST_PATH,os.R_OK):
-      self._error("sorry, manifest file already exists")
+    self.__load_state()
+
+    if name in self.dots:
+      self.out.info(name + ' already exists')
       exit(1)
-    else:
-      self._info('downloading manifest from "{}"...'.format(manifest_url))
-      manifest = urlopen(manifest_url).read()
-      with open(MANIFEST_PATH,'w') as f:
-        f.write(manifest)
 
-    self.clone()
-
-  def clone(self):
-    self._info("started cloning...")
-    job  = lambda name,repo,url: Git().clone(url,repo)
-    skip = lambda self,name: not self._skip_cloned(name)
-    for name,cmd,logfile in self._in_repos(job,skip):
-      if cmd.skipped():
-        self._print_result('already cloned')
-      else:
-        if cmd.exitcode == 0:
-          self._make_cloned(name)
-          self._print_result('ok')
-        else:
-          self._print_result('ERROR!',logfile)
+    self.dots[name] = Dot(os.path.join(self.DATA_PATH, name), url)
+    self.out.info('added ' + name)
+    self.__update_state()
 
   def status(self):
-    self._info('repos status:')
-    job = lambda name,repo,url: Git(repo).status()
-    for _,cmd,_ in self._in_repos(job):
-      if cmd.skipped():
-        self._print_result('SKIPPED (seems does not cloned yet)')
-      else:
-        if len(cmd.stdout) > 0:
-          self._print_result('DIRTY')
-        else:
-          self._print_result("clean")
+    self.__load_state()
+
+    self.out.info('repos status:')
+    self.out.info('')
+    for name, dot in I(self.dots, Dot.check):
+      self.out.info(name + "\t" + dot.state.name)
 
   def update(self):
-    self._info('pulling from remotes...')
-    job = lambda name,repo,url: Git(repo).pull()
-    for _,cmd,logfile in self._in_repos(job):
-      if cmd.skipped():
-        self._print_result('SKIPPED (seems does not cloned yet)')
-      else:
-        if cmd.exitcode == 0:
-          self._print_result('ok')
-        else:
-          self._print_result('ERROR!',logfile)
+    self.__load_state()
+
+    self.out.info('pulling from remotes...')
+    for name, dot in I(self.dots, Dot.update):
+      self.out.info(name + "\t" + dot.state.name)
 
   def upload(self):
     self._info('pushing to remotes...')
@@ -186,6 +114,39 @@ class Dot:
         exit(0)
     self._error('repo {} does not exists'.format(repo))
 
+  def __parse_args(self, args):
+    ap = argparse.ArgumentParser()
+    sp = ap.add_subparsers(title='commands', dest='command', metavar=None)
+
+    sp.add_parser('status', help='list known rc repos and their status')
+
+    p_add = sp.add_parser('add', help='add rc repo')
+    p_add.add_argument('url', type=str, help='rc repo (git) url')
+
+    sp.add_parser('update', help='update dot files repos')
+
+    #parser_push = sp.add_parser('p',
+    #    help='upload changes')
+    #parser_push.set_defaults(action='upload')
+
+    #parser_ok = sp.add_parser('ok',
+    #    help='ok stuff')
+    #parser_ok.set_defaults(action='ok')
+    #parser_ok.add_argument('repo', type=str,
+    #    help='repo name')
+
+    #parser_cd = sp.add_parser('cd',
+    #    help='cd into config directory')
+    #parser_cd.set_defaults(action='chdir')
+    #parser_cd.add_argument('repo', type=str,
+    #    help='repo name')
+
+    #parser_push = sp.add_parser('self-update',
+    #    help='update self')
+    #parser_push.set_defaults(action='self-update')
+
+    return ap.parse_args(args)
+
   def self_update(self):
     self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'
     self._info('downloading self from "{}"...'.format(self_url))
@@ -195,114 +156,113 @@ class Dot:
       f.write(self_code)
     self._info('successfully updated')
 
-  def _info(self,text):
-    sys.stdout.write(". "+text+"\n")
+  def __load_state(self):
+    state = {}
+    if os.access(self.STATE_FILE, os.R_OK):
+      with open(self.STATE_FILE, 'r') as f:
+        state = json.loads(f.read())
 
-  def _error(self,text):
-    sys.stderr.write(". "+text+"\n")
+    for repo, details in state.items():
+      self.dots[repo] = Dot(
+        url = details['url'],
+        path = details['path'],
+        revision = details['revision'],
+        updated_on = details['updated_on']
+      )
 
-  def _parse_manifest(self):
-    if os.access(MANIFEST_PATH,os.R_OK):
-      manifest_data = ConfigParser.ConfigParser()
-      manifest_data.read(MANIFEST_PATH)
-      self.dots = manifest_data.items('all')
-    else:
-      self._error("manifest file {} does not exist".format(MANIFEST_PATH))
-      exit(1)
-
-  def _load_metadata(self):
-    if os.access(METADATA_PATH,os.R_OK):
-      with open(METADATA_PATH,'r') as m:
-        self.metadata = json.loads(m.read())
-    else:
-        self.metadata = {}
-
-    for repo,_ in self.dots:
-      if not repo in self.metadata: self.metadata[repo]={}
-
-  def _assign_metadata(self,repo,key,value):
-    self.metadata[repo][key]=value
-
-  def _has_metadata(self,repo,key):
-    return key in self.metadata[repo]
-
-  def _dump_metadata(self):
-    with open(METADATA_PATH,'w') as m:
-      m.write(json.dumps(self.metadata,sort_keys=True,indent=2))
-
-  def _skip_cloned(self,name):
-    return not self._has_metadata(name,'cloned')
+  def __update_state(self):
+    state = {}
+    for name, dot in self.dots.items():
+      state[name] = {
+        'url': dot.url,
+        'path': dot.path,
+        'revision': dot.revision,
+        'updated_on': dot.updated_on
+      }
+    with open(self.STATE_FILE, 'w') as f:
+      f.write(json.dumps(state))
 
   def _make_cloned(self,name):
     self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
 
-  def _in_repos(self,job,skip=_skip_cloned):
-    self._parse_manifest()
-    self._load_metadata()
+class Dot:
+  State = Enum('State', 'UNKNOWN EXISTS BLANK')
 
-    jobs = Async()
-    for dot in self.dots:
-      name, url = dot
-      path = os.path.join(REPOS_PATH,name)
+  def __init__(self, path, url, revision=None, updated_on=None):
+    self.state = self.State.UNKNOWN
+    self.url = url
+    self.path = path
+    self.revision = revision
+    self.updated_on = updated_on
+    self.vcs = Git(self.path)
 
-      if skip(self,name):
-        jobs.add(name,False)
+  def check(self):
+    self.state = self.State.BLANK
+    if os.access(os.path.join(self.path, '.git'), os.R_OK) and os.system(' '.join(self.vcs.status())) == 0: # FIXME hardocde
+      self.state = self.State.EXISTS
+
+  def update(self):
+      self.check()
+      success = None
+      print(self.path)
+      if self.state == self.State.BLANK:
+          success = self.__action(self.vcs.clone(self.url, self.path))
       else:
-        jobs.add(name,job(name,path,url))
+          success = self.__action(self.vcs.pull())
 
-    for name,executor in jobs.run():
-      logfile = os.path.join(LOG_PATH,name+'.log')
-      if executor.skipped():
-        msg = "command execution was skipped\n"
-      else:
-        cmd = ' '.join(str(i) for i in executor.cmd)
-        msg = "command: {}\nreturn code: {}\n{}".format(cmd,executor.exitcode,executor.stderr)
-      with open(logfile,'w') as log: log.write(msg)
+      if success: self.state = self.State.EXISTS
 
-      sys.stdout.write(name+': ')
-      yield name,executor,logfile
+  def __action(self, command):
+      cmd = Cmd(command).invoke()
+      if cmd.success:
+          self.last_error = cmd.stderr
+      self.updated_on = datetime.utcnow()
+      return cmd.success
 
-    self._dump_metadata()
+class Cmd:
+    def __init__(self, cmd):
+        self.cmd = cmd
+        self.stdout   = None
+        self.stderr   = None
+        self.exitcode = None
 
-  def _print_result(self,text,logfile=None):
-    if logfile:
-      text = text + ' check out logfile: {}'.format(logfile)
-    sys.stdout.write(text+"\n")
+    def invoke(self):
+      process = subprocess.Popen(
+          self.cmd,
+          stdout=subprocess.PIPE,
+          stderr=subprocess.PIPE
+      )
+      self.stdout, self.stderr = process.communicate()
+      self.exitcode = process.returncode
+      return self
 
-class Executor():
-  def __init__(self,cmd):
-    self.cmd      = cmd
-    self._process = None
-    self.stdout   = None
-    self.stderr   = None
-    self.exitcode = None
-  def start(self):
-    if self.cmd:
-      self._process = subprocess.Popen(self.cmd,
-          stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    return self
-  def skipped(self):
-    return self.cmd == False
-  def join(self):
-    if self._process:
-      self.stdout,self.stderr = self._process.communicate()
-      self.exitcode = self._process.returncode
+    def success(self): return self.exitcode == 0
 
-class Async():
-  def __init__(self):
-    self.cmds={}
-  def add(self,name,cmd):
-    self.cmds[name]=cmd
-  def run(self):
-    subprocesses = {}
-    for name,cmd in self.cmds.iteritems():
-      subprocesses[name]=Executor(cmd).start()
-    for t in subprocesses.itervalues(): t.join()
-    for name,executor in subprocesses.iteritems():
-      yield name,executor
+class I():
+    def __init__(self, items, func):
+        self.items = items
+        self.func = func
+        self.threads = []
+
+    def __iter__(self):
+        self.__start()
+        self.i = iter(self.items)
+
+        return self
+
+    def __next__(self):
+        n = next(self.i)
+        return n, self.items[n]
+
+    def __start(self):
+        if self.threads: return
+        for name in self.items:
+            t = threading.Thread(target=self.func, args=(self.items[name],))
+            self.threads.append(t)
+            t.start()
+        for thread in self.threads: thread.join()
 
 class Git():
-
   def __init__(self,path=None):
     self.repo_path = path
 
@@ -323,7 +283,11 @@ class Git():
 
   def _git_path_opts(self):
     tmpl = ['--git-dir={}/.git', '--work-tree={}']
-    return map(lambda s: s.format(self.repo_path),tmpl)
+    return list(map(lambda s: s.format(self.repo_path),tmpl))
 
-if __name__ == "__main__":
-  Dot(sys.argv[1:]).do()
+class Log:
+  def info(self, text): sys.stdout.write(". "+text+"\n")
+  def error(self, text): sys.stderr.write(". "+text+"\n")
+
+if __name__ == '__main__':
+  Dotfiles().manage(sys.argv[1:])

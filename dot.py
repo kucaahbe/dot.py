@@ -37,10 +37,6 @@ class Dotfiles:
       self.update()
     #elif pargs.command == 'upload':
     #  self.upload()
-    #elif pargs.command == 'ok':
-    #  self.set_cloned(self.current_repo())
-    #elif pargs.command == 'chdir':
-    #  self.chdir(self.current_repo())
     #elif pargs.command == 'self-update':
     #  self.self_update()
     else:
@@ -90,35 +86,6 @@ class Dotfiles:
         else:
           self._print_result('ERROR!',logfile)
 
-  def set_cloned(self,repo_name):
-    self._parse_manifest()
-    self._load_metadata()
-    if repo_name in self.metadata:
-      self._make_cloned(repo_name)
-      self._dump_metadata()
-    else:
-      self._error("unknown repo: {}".format(repo_name))
-
-  def chdir(self,repo):
-    self._parse_manifest()
-    self._load_metadata()
-    for name,_ in self.dots:
-      repo_path = os.path.join(REPOS_PATH,name)
-      if repo == name:
-        os.chdir(repo_path)
-        platform = sys.platform
-        command = None
-        if platform == 'linux2':
-          command = ['x-terminal-emulator']
-        elif platform == 'darwin':
-          command = ['open','-b','com.apple.terminal','.']
-        else:
-          self._error("don't know how to open terminal on {} platform".format(platform))
-          exit(1)
-        Popen(command)
-        exit(0)
-    self._error('repo {} does not exists'.format(repo))
-
   def __parse_args(self, args):
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(title='commands', dest='command', metavar=None)
@@ -133,18 +100,6 @@ class Dotfiles:
     #parser_push = sp.add_parser('p',
     #    help='upload changes')
     #parser_push.set_defaults(action='upload')
-
-    #parser_ok = sp.add_parser('ok',
-    #    help='ok stuff')
-    #parser_ok.set_defaults(action='ok')
-    #parser_ok.add_argument('repo', type=str,
-    #    help='repo name')
-
-    #parser_cd = sp.add_parser('cd',
-    #    help='cd into config directory')
-    #parser_cd.set_defaults(action='chdir')
-    #parser_cd.add_argument('repo', type=str,
-    #    help='repo name')
 
     #parser_push = sp.add_parser('self-update',
     #    help='update self')

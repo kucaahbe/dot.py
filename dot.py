@@ -1,8 +1,8 @@
 # -*- coding: UTF-8 -*-
 import os
 import sys
-import subprocess
-import threading
+from subprocess import Popen, PIPE
+from multiprocessing import Process, Pipe
 import argparse
 import json
 from datetime import datetime
@@ -115,7 +115,7 @@ class Dotfiles:
         else:
           self._error("don't know how to open terminal on {} platform".format(platform))
           exit(1)
-        subprocess.Popen(command)
+        Popen(command)
         exit(0)
     self._error('repo {} does not exists'.format(repo))
 
@@ -190,11 +190,10 @@ class Dotfiles:
   def _make_cloned(self,name):
     self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
 
+DotState = Enum('DotState', 'UNKNOWN EXISTS BLANK')
 class Dot:
-  State = Enum('State', 'UNKNOWN EXISTS BLANK')
-
   def __init__(self, path, url, revision=None, updated_on=None):
-    self.state = self.State.UNKNOWN
+    self.state = DotState.UNKNOWN
     self.url = url
     self.path = path
     self.revision = revision
@@ -202,14 +201,14 @@ class Dot:
     self.vcs = Git(self.path)
 
   def check(self):
-    self.state = self.State.BLANK
+    self.state = DotState.BLANK
     if self.vcs.exists() and os.system(' '.join(self.vcs.status())) == 0: # FIXME hardocde
-      self.state = self.State.EXISTS
+      self.state = DotState.EXISTS
 
   def update(self):
     self.check()
     success = None
-    if self.state == self.State.BLANK:
+    if self.state == DotState.BLANK:
       success = self.__action(self.vcs.clone(self.url))
     else:
       success = self.__action(self.vcs.pull())
@@ -217,7 +216,7 @@ class Dot:
     if success:
       cmd = Cmd(self.vcs.revision()).invoke()
       self.revision = cmd.stdout.strip()
-      self.state = self.State.EXISTS
+      self.state = DotState.EXISTS
 
   def __action(self, command):
     cmd = Cmd(command).invoke()
@@ -234,10 +233,10 @@ class Cmd:
     self.exitcode = None
 
   def invoke(self):
-    process = subprocess.Popen(
+    process = Popen(
       self.cmd,
-      stdout=subprocess.PIPE,
-      stderr=subprocess.PIPE
+      stdout=PIPE,
+      stderr=PIPE
     )
     self.stdout, self.stderr = process.communicate()
     self.exitcode = process.returncode
@@ -265,10 +264,20 @@ class AsyncDo:
   def __start(self):
     if self.threads: return
     for name in self.items:
-      t = threading.Thread(target=self.func, args=(self.items[name],))
-      self.threads.append(t)
+      p_conn, c_conn = Pipe()
+      t = Process(target=self.__func, args=(c_conn, self.items[name],))
+      self.threads.append((t, p_conn, name))
       t.start()
-    for thread in self.threads: thread.join()
+    for thread in self.threads: thread[0].join()
+    for thread in self.threads:
+        name = thread[2]
+        conn = thread[1]
+        self.items[name] = conn.recv()
+
+  def __func(self, conn, data):
+      self.func(data)
+      conn.send(data)
+      conn.close()
 
 class Git:
   __CMD = ['git']

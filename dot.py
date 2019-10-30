@@ -19,8 +19,7 @@ else:
 class Dotfiles:
   __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [os.getenv('HOME'), '.local', 'share']
 
-  DATA_PATH    = os.path.join(*(__XDG_DATA_HOME + ['dotfiles']))
-  STATE_FILE   = os.path.join(*(__XDG_DATA_HOME + ['dotfiles.state']))
+  STATE_FILE   = os.path.join(*(__XDG_DATA_HOME + ['dotfiles.json']))
 
   def __init__(self):
     self.dots = {}
@@ -32,7 +31,7 @@ class Dotfiles:
     if pargs.command == 'status':
       self.status()
     elif pargs.command == 'add':
-      self.add(pargs.url)
+      self.add(pargs.path, pargs.url)
     elif pargs.command == 'update':
       self.update()
     #elif pargs.command == 'upload':
@@ -42,19 +41,40 @@ class Dotfiles:
     else:
       print_usage()
 
-  def add(self, url):
-    uri = urlparse(url)
-    name = uri.path.split('/')[-1].split('.')[-2] # FIXME
-
+  def add(self, path, url):
     self.__load_state()
+    rpath = os.path.abspath(os.path.expanduser(os.path.normpath(path)))
 
-    if name in self.dots:
-      self.out.info(name + ' already exists')
+    if os.path.isfile(rpath):
+      self.out.error(path + ' is regular file')
       exit(1)
 
-    self.dots[name] = Dot(os.path.join(self.DATA_PATH, name), url)
-    self.out.info('added ' + name)
+    for dot in self.dots.values():
+      if dot.path == rpath:
+        self.out.error(path + ' already added')
+        exit(1)
+
+    if url:
+      if os.path.isdir(rpath):
+        self.out.error(path + ' already exists, can not clone there')
+        exit(1)
+    else:
+      if os.path.isdir(rpath):
+        if Dot.isrepo(rpath):
+          url = Dot.repourl(rpath)
+        else:
+          self.out.error(path + ' is not a valid repo')
+          exit(1)
+      else:
+        self.out.error(path + ' does not exist')
+        exit(1)
+
+    dot = Dot(rpath, url)
+    dot.getrevision()
+    name = os.path.basename(rpath)
+    self.dots[name] = dot
     self.__update_state()
+    self.out.info('added ' + name)
 
   def status(self):
     self.__load_state()
@@ -93,7 +113,8 @@ class Dotfiles:
     sp.add_parser('status', help='list known rc repos and their status')
 
     p_add = sp.add_parser('add', help='add rc repo')
-    p_add.add_argument('url', type=str, help='rc repo (git) url')
+    p_add.add_argument('path', type=str, help='rc repo path')
+    p_add.add_argument('url', type=str, help='rc repo (git) url', nargs='?', default=None)
 
     sp.add_parser('update', help='update dot files repos')
 
@@ -134,12 +155,12 @@ class Dotfiles:
     state = {}
     for name, dot in self.dots.items():
       state[name] = {
-        'url': dot.url,
+        'url': dot.url.decode('utf-8'),
         'path': dot.path,
         'revision': dot.revision and dot.revision.decode('utf-8'),
         'updated_on': dot.updated_on and dot.updated_on.isoformat()
       }
-    data = json.dumps(state)
+    data = json.dumps(state, indent=2, separators=(',', ': '), sort_keys=True)
     with open(self.STATE_FILE, 'w') as f: f.write(data)
 
   def _make_cloned(self,name):
@@ -147,6 +168,15 @@ class Dotfiles:
 
 DotState = Enum('DotState', 'UNKNOWN EXISTS BLANK')
 class Dot:
+  @staticmethod
+  def isrepo(rpath):
+    return os.path.isdir(os.path.join(rpath, '.git'))
+
+  @staticmethod
+  def repourl(rpath):
+    cmd = Cmd(Git.url(rpath)).invoke()
+    return cmd.stdout.strip()
+
   def __init__(self, path, url, revision=None, updated_on=None):
     self.state = DotState.UNKNOWN
     self.url = url
@@ -169,16 +199,20 @@ class Dot:
       success = self.__action(self.vcs.pull())
 
     if success:
-      cmd = Cmd(self.vcs.revision()).invoke()
-      self.revision = cmd.stdout.strip()
+      self.getrevision()
       self.state = DotState.EXISTS
+
+  def getrevision(self):
+    success, out = self.__action(self.vcs.revision())
+    if success:
+      self.revision = out.strip()
 
   def __action(self, command):
     cmd = Cmd(command).invoke()
     if not cmd.success:
       self.last_error = cmd.stderr
     self.updated_on = datetime.utcnow()
-    return cmd.success
+    return cmd.success, cmd.stdout
 
 class Cmd:
   def __init__(self, cmd):
@@ -236,6 +270,9 @@ class AsyncDo:
 
 class Git:
   __CMD = ['git']
+
+  @staticmethod
+  def url(rpath): return Git.__CMD + ['--git-dir={}/.git'.format(rpath), 'config', 'remote.origin.url']
 
   def __init__(self, path): self.path = path
 

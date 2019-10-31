@@ -155,9 +155,9 @@ class Dotfiles:
     state = {}
     for name, dot in self.dots.items():
       state[name] = {
-        'url': dot.url.decode('utf-8'),
+        'url': dot.url,
         'path': dot.path,
-        'revision': dot.revision and dot.revision.decode('utf-8'),
+        'revision': dot.revision and dot.revision,
         'updated_on': dot.updated_on and dot.updated_on.isoformat()
       }
     data = json.dumps(state, indent=2, separators=(',', ': '), sort_keys=True)
@@ -227,11 +227,16 @@ class Cmd:
       stdout=PIPE,
       stderr=PIPE
     )
-    self.stdout, self.stderr = process.communicate()
+    stdout, stderr = process.communicate()
+    self.stdout, self.stderr = self.__str(stdout), self.__str(stderr)
     self.exitcode = process.returncode
     return self
 
   def success(self): return self.exitcode == 0
+
+  def __str(self, maybe_bytes):
+    if type(maybe_bytes) is bytes: return maybe_bytes.decode('utf-8')
+    return maybe_bytes
 
 class AsyncDo:
   def __init__(self, items, func):

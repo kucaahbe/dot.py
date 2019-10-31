@@ -82,17 +82,17 @@ class Dotfiles:
     self.out.info('repos status:')
     self.out.info('')
     for name, dot in AsyncDo(self.dots, Dot.check):
-      self.out.info(name + "\t" + dot.state.name)
+      self.out.info(name + "\t" + dot.state.name + "\t" + dot.path)
+      self.out.info(" " + dot.url + " " + dot.revision)
 
   def update(self):
     self.__load_state()
 
     self.out.info('pulling from remotes...')
     self.out.info('')
-    for name, dot in AsyncDo(self.dots, Dot.update):
-      self.out.info(name + "\t" + dot.state.name)
-
+    for _ in AsyncDo(self.dots, Dot.update): pass
     self.__update_state()
+    self.status()
 
   def upload(self):
     self._info('pushing to remotes...')

@@ -8,12 +8,8 @@ import json
 from datetime import datetime
 from enum import Enum
 if sys.version_info > (3, 0):
-  from urllib.request import urlopen
-  from urllib.parse import urlparse
   from configparser import ConfigParser
 else:
-  from urllib2 import urlopen
-  from urlparse import urlparse
   import ConfigParser
 
 class Dotfiles:
@@ -34,10 +30,6 @@ class Dotfiles:
       self.add(pargs.path, pargs.url)
     elif pargs.command == 'update':
       self.update()
-    #elif pargs.command == 'upload':
-    #  self.upload()
-    #elif pargs.command == 'self-update':
-    #  self.self_update()
     else:
       print_usage()
 
@@ -94,18 +86,6 @@ class Dotfiles:
     self.__update_state()
     self.status()
 
-  def upload(self):
-    self._info('pushing to remotes...')
-    job = lambda name,repo,url: Git(repo).push()
-    for _,cmd,logfile in self._in_repos(job):
-      if cmd.skipped():
-        self._print_result('SKIPPED (seems does not cloned yet)')
-      else:
-        if cmd.exitcode == 0:
-          self._print_result('ok')
-        else:
-          self._print_result('ERROR!',logfile)
-
   def __parse_args(self, args):
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(title='commands', dest='command', metavar=None)
@@ -118,24 +98,7 @@ class Dotfiles:
 
     sp.add_parser('update', help='update dot files repos')
 
-    #parser_push = sp.add_parser('p',
-    #    help='upload changes')
-    #parser_push.set_defaults(action='upload')
-
-    #parser_push = sp.add_parser('self-update',
-    #    help='update self')
-    #parser_push.set_defaults(action='self-update')
-
     return ap.parse_args(args), ap.print_usage
-
-  def self_update(self):
-    self_url = 'https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py'
-    self._info('downloading self from "{}"...'.format(self_url))
-    self_code = urlopen(self_url).read()
-    self_path = sys.argv[0]
-    with open(self_path,'w') as f:
-      f.write(self_code)
-    self._info('successfully updated')
 
   def __load_state(self):
     state = {}
@@ -157,14 +120,11 @@ class Dotfiles:
       state[name] = {
         'url': dot.url,
         'path': dot.path,
-        'revision': dot.revision and dot.revision,
+        'revision': dot.revision,
         'updated_on': dot.updated_on and dot.updated_on.isoformat()
       }
     data = json.dumps(state, indent=2, separators=(',', ': '), sort_keys=True)
     with open(self.STATE_FILE, 'w') as f: f.write(data)
-
-  def _make_cloned(self,name):
-    self._assign_metadata(name,'cloned',datetime.utcnow().isoformat())
 
 DotState = Enum('DotState', 'UNKNOWN EXISTS BLANK')
 class Dot:

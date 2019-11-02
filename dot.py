@@ -202,7 +202,7 @@ class AsyncDo:
   def __init__(self, items, func):
     self.items = items
     self.func = func
-    self.threads = []
+    self.workers = []
 
   def __iter__(self):
     self.__start()
@@ -216,17 +216,14 @@ class AsyncDo:
   next = __next__
 
   def __start(self):
-    if self.threads: return
+    if self.workers: return
     for name in self.items:
       p_conn, c_conn = Pipe()
-      t = Process(target=self.__func, args=(c_conn, self.items[name],))
-      self.threads.append((t, p_conn, name))
-      t.start()
-    for thread in self.threads: thread[0].join()
-    for thread in self.threads:
-        name = thread[2]
-        conn = thread[1]
-        self.items[name] = conn.recv()
+      worker = Process(target=self.__func, args=(c_conn, self.items[name],))
+      self.workers.append((worker, p_conn, name))
+      worker.start()
+    for worker, _, _ in self.workers: worker.join()
+    for _, conn, name in self.workers: self.items[name] = conn.recv()
 
   def __func(self, conn, data):
       self.func(data)
@@ -253,12 +250,9 @@ class Git:
 
   def revision(self): return self.__base() + ['rev-parse', 'HEAD']
 
-  def __base(self):
-    return self.__CMD + self.__path_settings()
+  def __base(self): return self.__CMD + self.__path_settings()
 
-  def __path_settings(self):
-    tmpl = ['--git-dir={}/.git', '--work-tree={}']
-    return [t.format(self.path) for t in tmpl]
+  def __path_settings(self): return [t.format(self.path) for t in ['--git-dir={}/.git', '--work-tree={}']]
 
 class Log:
   def info(self, text): sys.stdout.write(". "+text+"\n")

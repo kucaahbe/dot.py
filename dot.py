@@ -10,7 +10,7 @@ from enum import Enum
 if sys.version_info > (3, 0):
   from configparser import ConfigParser
 else:
-  import ConfigParser
+  from ConfigParser import ConfigParser
 
 class Dotfiles:
   __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [os.getenv('HOME'), '.local', 'share']
@@ -24,18 +24,21 @@ class Dotfiles:
   def manage(self, args):
     pargs, print_usage = self.__parse_args(args)
 
+    if pargs.command: self.__load_state()
+
     if pargs.command == 'status':
       self.status()
     elif pargs.command == 'add':
       self.add(pargs.path, pargs.url)
     elif pargs.command == 'update':
       self.update()
+    elif pargs.command == 'install':
+      self.install()
     else:
       print_usage()
 
   def add(self, path, url):
-    self.__load_state()
-    rpath = os.path.abspath(os.path.expanduser(os.path.normpath(path)))
+    rpath = Dot.rpath(path)
 
     if os.path.isfile(rpath):
       self.out.error(path + ' is regular file')
@@ -69,8 +72,6 @@ class Dotfiles:
     self.out.info('added ' + name)
 
   def status(self):
-    self.__load_state()
-
     self.out.info('repos status:')
     self.out.info('')
     for name, dot in AsyncDo(self.dots, Dot.check):
@@ -78,13 +79,28 @@ class Dotfiles:
       self.out.info(" " + dot.url + " " + dot.revision)
 
   def update(self):
-    self.__load_state()
-
     self.out.info('pulling from remotes...')
     self.out.info('')
     for _ in AsyncDo(self.dots, Dot.update): pass
     self.__update_state()
     self.status()
+
+  def install(self, dot_name=None):
+    if dot_name and dot_name in self.dots:
+      self.dots[dot_name].install()
+      return
+
+    cwd = os.getcwd()
+    for name, dot in self.dots.items():
+      if dot.path == cwd:
+        dot_name = name
+        break
+    if dot_name:
+      self.dots[dot_name].install()
+      return
+
+    for dot in self.dots.values(): dot.install()
+    self.__update_state()
 
   def __parse_args(self, args):
     ap = argparse.ArgumentParser()
@@ -98,6 +114,9 @@ class Dotfiles:
 
     sp.add_parser('update', help='update dot files repos')
 
+    p_install = sp.add_parser('install', help='install files')
+    p_install.add_argument('repo', type=str, help='repo name', nargs='?', default=None)
+
     return ap.parse_args(args), ap.print_usage
 
   def __load_state(self):
@@ -107,22 +126,12 @@ class Dotfiles:
         state = json.loads(f.read())
 
     for repo, details in state.items():
-      self.dots[repo] = Dot(
-        url = details['url'],
-        path = details['path'],
-        revision = details['revision'],
-        updated_on = details['updated_on'] and datetime.strptime(details['updated_on'], '%Y-%m-%dT%H:%M:%S.%f')
-      )
+      self.dots[repo] = Dot.from_json(details)
 
   def __update_state(self):
     state = {}
     for name, dot in self.dots.items():
-      state[name] = {
-        'url': dot.url,
-        'path': dot.path,
-        'revision': dot.revision,
-        'updated_on': dot.updated_on and dot.updated_on.isoformat()
-      }
+      state[name] = dot.as_json()
     data = json.dumps(state, indent=2, separators=(',', ': '), sort_keys=True)
     with open(self.STATE_FILE, 'w') as f: f.write(data)
 
@@ -137,13 +146,39 @@ class Dot:
     cmd = Cmd(Git.url(rpath)).invoke()
     return cmd.stdout.strip()
 
-  def __init__(self, path, url, revision=None, updated_on=None):
+  @staticmethod
+  def rpath(path): return os.path.abspath(os.path.expanduser(os.path.normpath(path)))
+
+  @staticmethod
+  def from_json(json):
+    return Dot(
+      url = json.get('url', None),
+      path = json['path'],
+      revision = json.get('revision', None),
+      updated_on = json.get('updated_on', None) and datetime.strptime(json['updated_on'], '%Y-%m-%dT%H:%M:%S.%f'),
+      installed = json.get('installed', {}),
+      errors = json.get('errors', {}),
+    )
+
+  def __init__(self, path, url, revision=None, updated_on=None, installed={}, errors={}):
     self.state = DotState.UNKNOWN
     self.url = url
     self.path = path
     self.revision = revision
     self.updated_on = updated_on
+    self.installed = {'links': installed.get('links', {}), 'copies': installed.get('copies', {})}
     self.vcs = Git(self.path)
+    self.errors = {'install': errors.get('install', [])}
+
+  def as_json(self):
+    return {
+      'url': self.url,
+      'path': self.path,
+      'revision': self.revision,
+      'updated_on': self.updated_on and self.updated_on.isoformat(),
+      'installed': self.installed,
+      'errors': self.errors,
+    }
 
   def check(self):
     self.state = DotState.BLANK
@@ -166,6 +201,52 @@ class Dot:
     success, out = self.__action(self.vcs.revision())
     if success:
       self.revision = out.strip()
+
+  def install(self):
+    self.errors['install'] = []
+    self.check()
+    if self.state != DotState.EXISTS: return
+
+    dotfiles_ini = os.path.join(self.path, 'dotfiles.ini')
+
+    if not os.path.exists(dotfiles_ini): return
+
+    config = ConfigParser()
+    config.read(dotfiles_ini)
+
+    # TODO: remove all previously installed symlinks/files
+
+    self.__make_symlinks(config)
+
+  def __make_symlinks(self, config):
+    LINKS = 'links'
+    if LINKS not in config.sections():
+      self.errors['install'].append('there is no links section in dotfiles.ini')
+      return
+
+    for src, dest in config.items(LINKS):
+      dest = Dot.rpath(dest)
+      src = os.path.join(self.path, src)
+      if os.path.exists(dest):
+        if os.path.islink(dest):
+          if os.readlink(dest) == src:
+            self.installed['links'][src] = dest
+          else:
+            self.errors['install'].append(dest + ' already exists and is symlink to somewhere else')
+        else:
+          self.errors['install'].append(dest + ' already exists and is regular file')
+      else:
+        dest_dir = os.path.dirname(dest)
+        if os.path.isdir(dest_dir):
+          os.symlink(src, dest)
+          self.installed['links'][src] = dest
+        else:
+          try:
+            os.makedirs(dest_dir)
+            os.symlink(src, dest)
+            self.installed['links'][src] = dest
+          except os.error as e:
+            self.errors['install'].append('can not create directory for ' + dest + ' : ' + e)
 
   def __action(self, command):
     cmd = Cmd(command).invoke()

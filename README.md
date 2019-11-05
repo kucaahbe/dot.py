@@ -1,42 +1,43 @@
-dot - personal command line config manager for developer
-========================================================
+# dotfiles - manage dotfiles
 
-sample manifest:
-
-    [all]
-    git=git://github.com/kucaahbe/gitrc.git
-    zsh=git://github.com/kucaahbe/zshrc.git
-    vim=git://github.com/kucaahbe/vimrc.git
-
-
-Design goals
-============
-
-* could be installed via `wget` or similar
-* no assumptions about user preferences, keep your dotfiles as you want them
-* get out of you way, and let you do your job
-
-Install
-=======
+### Install
 
 ```sh
-curl https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py -o ~/bin/dot && chmod +x ~/bin/dot
+curl https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -o /usr/local/bin/dotfiles && chmod +x /usr/local/bin/dotfiles
+# or
+wget https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -O /usr/local/bin/dotfiles && chmod +x /usr/local/bin/dotfiles
 ```
 
-or
+### Use
+
+1. add dotfiles repository (there maybe few, add each one as needed, existing repositories also work):
 
 ```sh
-wget https://raw.githubusercontent.com/kucaahbe/dot.py/master/dot.py -O ~/bin/dot && chmod +x ~/bin/dot
+dotfiles add ~/mydotfiles/dotfiles1 git://githosting.io/username/dotfiles1
 ```
 
-Usage
-=====
+2. check what's added:
 
-dot i git://path.com/to/manifest.git - download and put manifest file into ~/.dotrc, create own data files, clones repositories, add self sync command into user's crontab,
-installs everything and backup already existing files
+```sh
+dotfiles status
+```
 
-dot u - clone/update all configs(also run install script for every config if clone, and write itself into a crontab in order to update configs)
+3. download updates:
 
-dot s - see git status for each config
+```sh
+dotfiles update
+```
 
-dot p - push updates if any(if fail to push to some repo tries to fix git url and repush again)
+4. symlink/copy needed files, if target dotfiles repository(ies) contains [dotfiles.ini](#dotfilesini)
+```sh
+dotfiles install {specific repo name}
+```
+
+##### dotfiles.ini:
+
+```ini
+# dotfiles.ini
+[links]
+bashrc = ~/.bashrc
+ls.bashrc = ~/.bashrc.d/ls.bashrc
+```

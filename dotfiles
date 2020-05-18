@@ -199,6 +199,7 @@ class Dot:
     self.check()
     success = None
     if self.state == DotState.BLANK:
+      if not os.path.exists(self.path): os.mkdir(self.path)
       success = self.__action(self.vcs.clone(self.url))
     else:
       success = self.__action(self.vcs.pull())

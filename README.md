@@ -3,9 +3,10 @@
 ### Install
 
 ```sh
-curl https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -o /usr/local/bin/dotfiles && chmod +x /usr/local/bin/dotfiles
+# installing into /usr/loca/bin/dotfiles:
+curl https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -o /tmp/dotfiles && sudo bash -c 'chmod +x /tmp/dotfiles && mv /tmp/dotfiles /usr/local/bin/dotfiles'
 # or
-wget https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -O /usr/local/bin/dotfiles && chmod +x /usr/local/bin/dotfiles
+wget https://raw.githubusercontent.com/kucaahbe/dot.py/master/dotfiles -O /tmp/dotfiles && sudo bash -c 'chmod +x /tmp/dotfiles && mv /tmp/dotfiles /usr/local/bin/dotfiles'
 ```
 
 ### Use

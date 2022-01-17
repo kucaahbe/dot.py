@@ -1,13 +1,4 @@
-#!/bin/bash
-pythons=(/bin/python3 /usr/bin/python3 /bin/python /usr/bin/python)
-for python in "${pythons[@]}"; do
-  if [[ -x $python ]]; then PYTHON=$python; break; fi
-done
-if [[ -z "$PYTHON" ]]; then
-  echo "ERROR: python interpreter was not found, searched in ${pythons[@]}..."
-  exit 1
-fi
-exec $PYTHON - $* <<'EOF'
+#!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 import os
 import sys
@@ -351,4 +342,3 @@ class Log:
   def error(self, text): sys.stderr.write(". "+text+"\n")
 
 if __name__ == '__main__': Dotfiles().manage(sys.argv[1:])
-EOF

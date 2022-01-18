@@ -14,6 +14,12 @@ from configparser import ConfigParser
 __XDG_DATA_HOME__ = os.getenv('XDG_DATA_HOME') or os.path.join(os.getenv('HOME'), '.local', 'share')
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+log_file = logging.FileHandler(os.path.join(__XDG_DATA_HOME__, 'dotfiles.log'))
+log_file.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)s: %(message)s')
+log_file.setFormatter(formatter)
+logger.addHandler(log_file)
 
 class Dotfiles:
 

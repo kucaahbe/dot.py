@@ -2,6 +2,7 @@
 # pylint: disable=missing-function-docstring, missing-module-docstring, missing-class-docstring
 import os
 import sys
+import logging
 from subprocess import Popen, PIPE
 from multiprocessing import Process, Pipe
 import argparse
@@ -10,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 from configparser import ConfigParser
 
+logger = logging.getLogger(__name__)
 
 class Dotfiles:
     __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [
@@ -19,7 +21,6 @@ class Dotfiles:
 
     def __init__(self):
         self.dots = {}
-        self.out = Log()
 
     def manage(self, args):
         pargs, print_usage = self.__parse_args(args)
@@ -65,18 +66,18 @@ class Dotfiles:
         name = os.path.basename(rpath)
         self.dots[name] = dot
         self.__update_state()
-        self.out.info('added ' + name)
+        print('added ' + name)
 
     def status(self):
-        self.out.info('repos status:')
-        self.out.info('')
+        print('repos status:')
+        print()
         for name, dot in AsyncDo(self.dots, Dot.check):
-            self.out.info(name + "\t" + dot.state.name + "\t" + dot.path)
-            self.out.info(" " + dot.url + " " + dot.revision)
+            print(name + "\t" + dot.state.name + "\t" + dot.path)
+            print(" " + dot.url + " " + dot.revision)
 
     def update(self):
-        self.out.info('pulling from remotes...')
-        self.out.info('')
+        print('pulling from remotes...')
+        print()
         for _ in AsyncDo(self.dots, Dot.update):
             pass
         self.__update_state()
@@ -406,11 +407,6 @@ class Git:
     def __path_settings(self):
         return [t.format(self.path)
                 for t in ['--git-dir={}/.git', '--work-tree={}']]
-
-
-class Log:
-    def info(self, text): sys.stdout.write(". " + text + "\n")
-    def error(self, text): sys.stderr.write(". " + text + "\n")
 
 
 if __name__ == '__main__':

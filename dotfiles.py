@@ -11,13 +11,13 @@ from datetime import datetime
 from enum import Enum
 from configparser import ConfigParser
 
+__XDG_DATA_HOME__ = os.getenv('XDG_DATA_HOME') or os.path.join(os.getenv('HOME'), '.local', 'share')
+
 logger = logging.getLogger(__name__)
 
 class Dotfiles:
-    __XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or [
-        os.getenv('HOME'), '.local', 'share']
 
-    STATE_FILE = os.path.join(*(__XDG_DATA_HOME + ['dotfiles.json']))
+    STATE_FILE = os.path.join(__XDG_DATA_HOME__, 'dotfiles.json')
 
     def __init__(self):
         self.dots = {}

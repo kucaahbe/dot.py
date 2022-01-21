@@ -3,417 +3,366 @@
 import os
 import sys
 import logging
-from subprocess import Popen, PIPE
-from multiprocessing import Process, Pipe
+import asyncio
+import functools
+import shutil
+import shlex
 import argparse
 import json
 from datetime import datetime
 from enum import Enum
-from configparser import ConfigParser
+import configparser
+from itertools import chain
 
-__XDG_DATA_HOME__ = os.getenv('XDG_DATA_HOME') or os.path.join(os.getenv('HOME'), '.local', 'share')
+XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or os.path.join(os.getenv('HOME'), '.local', 'share')
+STATE_FILE = os.path.join(XDG_DATA_HOME, 'dotfiles.state')
+CONFIG_NAME = 'dotfiles.ini'
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-log_file = logging.FileHandler(os.path.join(__XDG_DATA_HOME__, 'dotfiles.log'))
-log_file.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)s: %(message)s')
-log_file.setFormatter(formatter)
-logger.addHandler(log_file)
 
-class Dotfiles:
+async def main(args):
+    logger.setLevel(logging.DEBUG)
+    log_file = logging.FileHandler(os.path.join(XDG_DATA_HOME, 'dotfiles.log'))
+    log_file.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)s: %(message)s')
+    log_file.setFormatter(formatter)
+    logger.addHandler(log_file)
 
-    STATE_FILE = os.path.join(__XDG_DATA_HOME__, 'dotfiles.json')
+    pargs, print_usage = parse_args(args)
 
+    if not pargs.command or pargs.command == 'status':
+        await status()
+    elif pargs.command == 'add':
+        await add(pargs.path, pargs.url)
+    elif pargs.command == 'rm':
+        await remove(pargs.path)
+    elif pargs.command == 'update':
+        await update()
+    elif pargs.command == 'install':
+        await install()
+    else:
+        print_usage()
+
+def parse_args(args):
+    parser = argparse.ArgumentParser()
+
+    commands_parser = parser.add_subparsers(title='commands', dest='command', metavar=None)
+    commands_parser.add_parser('status', help='list known directories and their status')
+
+    p_add = commands_parser.add_parser('add', help='add rc repo')
+    p_add.add_argument('path', type=str, help='rc repo path')
+    p_add.add_argument('url', type=str, help='rc repo (git) url', nargs='?', default=None)
+
+    p_remove = commands_parser.add_parser('rm', help='remove repo')
+    p_remove.add_argument('path', type=str, help='repo path')
+
+    commands_parser.add_parser('update', help='update dot files repos')
+
+    p_install = commands_parser.add_parser('install', help='install files')
+    p_install.add_argument('repo', type=str, help='repo name', nargs='?', default=None)
+
+    return parser.parse_args(args), parser.print_usage
+
+class State:
     def __init__(self):
-        self.dots = {}
+        self.repos = None
 
-    def manage(self, args):
-        pargs, print_usage = self.__parse_args(args)
+    def __load__(self):
+        raw_state = {}
+        if os.access(STATE_FILE, os.R_OK):
+            with open(STATE_FILE, 'r', encoding='utf-8') as state_f:
+                raw_state = json.loads(state_f.read())
 
-        if pargs.command:
-            self.__load_state()
+        self.repos = [Dot(path).load(raw_state[path]) for path in sorted(raw_state)]
 
-        if pargs.command == 'status':
-            self.status()
-        elif pargs.command == 'add':
-            self.add(pargs.path, pargs.url)
-        elif pargs.command == 'update':
-            self.update()
-        elif pargs.command == 'install':
-            self.install()
-        else:
-            print_usage()
+    def __save__(self):
+        state = {repo.path:repo.as_json() for repo in self.repos}
+        data = json.dumps(state, indent=2, separators=(',', ': '), sort_keys=True)
+        with open(STATE_FILE, 'w', encoding='utf-8') as state_f:
+            state_f.write(data)
 
-    def add(self, path, url):
-        rpath = Dot.rpath(path)
+    def __enter__(self):
+        self.__load__()
 
-        if os.path.isfile(rpath):
-            sys.exit(path + ' is regular file')
+        return self
 
-        for dot in self.dots.values():
-            if dot.path == rpath:
-                sys.exit(path + ' already added')
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__save__()
 
-        if url:
-            if os.path.isdir(rpath):
-                sys.exit(path + ' already exists, can not clone there')
-        else:
-            if os.path.isdir(rpath):
-                if Dot.isrepo(rpath):
-                    url = Dot.repourl(rpath)
-                else:
-                    sys.exit(path + ' is not a valid repo')
+        if exc_type == SystemExit:
+            return False
+
+        if exc_type:
+            logger.error('exception while managing state:', exc_info=(exc_type, exc_val, exc_tb))
+            return True
+
+        return False
+
+def with_state(func):
+    @functools.wraps(func)
+    async def state_managed(*args, **kwargs):
+        with State() as state:
+            kwargs['state'] = state
+            if asyncio.iscoroutinefunction(func):
+                await func(*args, **kwargs)
             else:
-                sys.exit(path + ' does not exist')
+                func(*args, **kwargs)
+    return state_managed
 
-        dot = Dot(rpath, url)
-        dot.getrevision()
-        name = os.path.basename(rpath)
-        self.dots[name] = dot
-        self.__update_state()
-        print('added ' + name)
+@with_state
+async def status(state=None):
+    await asyncio.gather(*[repo.check() for repo in state.repos])
 
-    def status(self):
-        print('repos status:')
+    print('repos status:\n')
+    for repo in state.repos:
+        print(f'{repo.path}: {repo.state}', end='')
+        if repo.vcs:
+            print(f' ({repo.vcs.state})', end='')
         print()
-        for name, dot in AsyncDo(self.dots, Dot.check):
-            print(name + "\t" + dot.state.name + "\t" + dot.path)
-            print(" " + dot.url + " " + dot.revision)
+        if repo.state == DotState.ABSENT:
+            continue
+        if repo.files:
+            for file in repo.files:
+                if file.is_link():
+                    print(f'  {file.src} -> {file.dest}')
+        else:
+            print(f'  {CONFIG_NAME} not found')
 
-    def update(self):
-        print('pulling from remotes...')
-        print()
-        for _ in AsyncDo(self.dots, Dot.update):
-            pass
-        self.__update_state()
-        self.status()
+@with_state
+async def add(path, url, state=None):
+    path = Dot.normalized_path(path)
 
-    def install(self, dot_name=None):
-        if dot_name and dot_name in self.dots:
-            self.dots[dot_name].install()
-            return
+    for repo in state.repos:
+        if repo.path == path:
+            sys.exit(f'"{path}" is already added')
 
-        cwd = os.getcwd()
-        for name, dot in self.dots.items():
-            if dot.path == cwd:
-                dot_name = name
-                break
-        if dot_name:
-            self.dots[dot_name].install()
-            return
+    if os.path.isfile(path):
+        sys.exit(f'"{path}" is a regular file')
 
-        for dot in self.dots.values():
-            dot.install()
-        self.__update_state()
+    if url:
+        if os.path.isdir(path):
+            sys.exit(path + ' already exists, can not clone there')
+        print('TODO')
+    else:
+        if not os.path.isdir(path):
+            sys.exit(f'"{path}" does not exist')
+        repo = Dot(path)
+        await repo.check()
+        state.repos.append(repo)
+        print(f'"{repo.path}" added')
 
-    def __parse_args(self, args):
-        ap = argparse.ArgumentParser()
-        sp = ap.add_subparsers(title='commands', dest='command', metavar=None)
+@with_state
+def remove(path, state=None):
+    try:
+        path = Dot.normalized_path(path)
+        idx = [repo.path for repo in state.repos].index(path)
+        repo = state.repos[idx]
+        del state.repos[idx]
+        print(f'repo at {repo.path} was excluded from configuration')
+    except ValueError:
+        sys.exit(f'"{path}" is unknown repo folder')
 
-        sp.add_parser('status', help='list known rc repos and their status')
+@with_state
+async def update(state=None):
+    print('pulling from remotes...\n')
 
-        p_add = sp.add_parser('add', help='add rc repo')
-        p_add.add_argument('path', type=str, help='rc repo path')
-        p_add.add_argument(
-            'url',
-            type=str,
-            help='rc repo (git) url',
-            nargs='?',
-            default=None)
+    await asyncio.gather(*[repo.update() for repo in state.repos])
+    await status()
 
-        sp.add_parser('update', help='update dot files repos')
-
-        p_install = sp.add_parser('install', help='install files')
-        p_install.add_argument(
-            'repo',
-            type=str,
-            help='repo name',
-            nargs='?',
-            default=None)
-
-        return ap.parse_args(args), ap.print_usage
-
-    def __load_state(self):
-        state = {}
-        if os.access(self.STATE_FILE, os.R_OK):
-            with open(self.STATE_FILE, 'r', encoding='utf-8') as f:
-                state = json.loads(f.read())
-
-        for repo, details in state.items():
-            self.dots[repo] = Dot.from_json(details)
-
-    def __update_state(self):
-        state = {}
-        for name, dot in self.dots.items():
-            state[name] = dot.as_json()
-        data = json.dumps(
-            state, indent=2, separators=(
-                ',', ': '), sort_keys=True)
-        with open(self.STATE_FILE, 'w', encoding='utf-8') as f:
-            f.write(data)
+@with_state
+async def install(state=None):
+    await asyncio.gather(*[repo.install() for repo in state.repos])
 
 
-DotState = Enum('DotState', 'UNKNOWN EXISTS BLANK')
+DotState = Enum('DotState', 'UNKNOWN EXISTS ABSENT BLANK')
 
 
 class Dot:
-    @staticmethod
-    def isrepo(rpath):
-        return os.path.isdir(os.path.join(rpath, '.git'))
+    TIME_FMT = '%Y-%m-%dT%H:%M:%S.%f'
 
     @staticmethod
-    def repourl(rpath):
-        cmd = Cmd(Git.url(rpath)).invoke()
-        return cmd.stdout.strip()
-
-    @staticmethod
-    def rpath(path):
+    def normalized_path(path):
         return os.path.abspath(os.path.expanduser(os.path.normpath(path)))
 
-    @staticmethod
-    def from_json(json_data):
-        return Dot(
-            url=json_data.get(
-                'url',
-                None),
-            path=json_data['path'],
-            revision=json_data.get(
-                'revision',
-                None),
-            updated_on=json_data.get(
-                'updated_on',
-                None) and datetime.strptime(
-                    json_data['updated_on'],
-                    '%Y-%m-%dT%H:%M:%S.%f'),
-            installed=json_data.get(
-                'installed',
-                {}),
-            errors=json_data.get(
-                'errors',
-                {}),
-        )
-
-    def __init__(
-            self,
-            path,
-            url,
-            revision=None,
-            updated_on=None,
-            installed={},
-            errors={}):
+    def __init__(self, path):
+        self.path = self.__class__.normalized_path(path)
         self.state = DotState.UNKNOWN
-        self.url = url
-        self.path = path
-        self.revision = revision
-        self.updated_on = updated_on
-        self.installed = {
-            'links': installed.get(
-                'links', {}), 'copies': installed.get(
-                'copies', {})}
-        self.vcs = Git(self.path)
-        self.errors = {'install': errors.get('install', [])}
-        self.last_error = None
+        self.updated_on = None
+        self.revision = None
+        self.files = []
+        self.vcs = None
+
+    def load(self, data):
+        raw_updated_on = data.get('updated_on', None)
+        self.updated_on = raw_updated_on and datetime.strptime(raw_updated_on, self.TIME_FMT)
+
+        return self
 
     def as_json(self):
         return {
-            'url': self.url,
-            'path': self.path,
             'revision': self.revision,
             'updated_on': self.updated_on and self.updated_on.isoformat(),
-            'installed': self.installed,
-            'errors': self.errors,
         }
 
-    def check(self):
-        self.state = DotState.BLANK
-        if self.vcs.exists() and os.system(
-                ' '.join(self.vcs.status())) == 0:  # FIXME hardocde
-            self.state = DotState.EXISTS
+    async def check(self):
+        if not os.access(self.path, os.R_OK):
+            self.state = DotState.ABSENT
+            return
 
-    def update(self):
-        self.check()
-        success = None
-        if self.state == DotState.BLANK:
-            if not os.path.exists(self.path):
-                os.mkdir(self.path)
-            success = self.__action(self.vcs.clone(self.url))
+        self.__load_config__()
+
+        if Git.exists(self.path):
+            self.vcs = Git(self.path)
         else:
-            success = self.__action(self.vcs.pull())
+            self.vcs = Folder(self.path)
 
-        if success:
-            self.getrevision()
-            self.state = DotState.EXISTS
+        await self.vcs.load_state()
 
-    def getrevision(self):
-        success, out = self.__action(self.vcs.revision())
-        if success:
-            self.revision = out.strip()
+    async def update(self):
+        await self.check()
+        await self.vcs.update()
 
-    def install(self):
-        self.errors['install'] = []
-        self.check()
-        if self.state != DotState.EXISTS:
+    async def install(self):
+        await self.check()
+        self.__symlink_files__()
+
+    def __load_config__(self):
+        config_file = os.path.join(self.path, CONFIG_NAME)
+
+        if not os.path.exists(config_file):
             return
 
-        dotfiles_ini = os.path.join(self.path, 'dotfiles.ini')
+        config = configparser.ConfigParser(allow_no_value = True)
+        with open(config_file, 'r', encoding='utf-8') as file:
+            config.read_file(chain([f'[{configparser.DEFAULTSECT}]'], file), source=config_file)
 
-        if not os.path.exists(dotfiles_ini):
-            return
+        for src, dest in sorted(config.defaults().items()):
+            self.files.append(File(src, dest, 'link'))
 
-        config = ConfigParser()
-        config.read(dotfiles_ini)
-
+    def __symlink_files__(self):
         # TODO: remove all previously installed symlinks/files
 
-        self.__make_symlinks(config)
+        for file in [f for f in self.files if f.is_link()]:
+            src = os.path.join(self.path, file.src)
+            dest = Dot.normalized_path(file.dest)
 
-    def __make_symlinks(self, config):
-        LINKS = 'links'
-        if LINKS not in config.sections():
-            self.errors['install'].append(
-                'there is no links section in dotfiles.ini')
-            return
-
-        for src, dest in config.items(LINKS):
-            dest = Dot.rpath(dest)
-            src = os.path.join(self.path, src)
+            print(src, dest)
             if os.path.exists(dest):
                 if os.path.islink(dest):
-                    if os.readlink(dest) == src:
-                        self.installed['links'][src] = dest
+                    real_link = os.readlink(dest)
+                    if real_link == src:
+                        logger.debug('link OK: %s -> %s', dest, src)
                     else:
-                        self.errors['install'].append(
-                            dest + ' already exists and is symlink to somewhere else')
+                        logger.error('link NOT OK: %s -> %s', dest, real_link)
                 else:
-                    self.errors['install'].append(
-                        dest + ' already exists and is regular file')
+                    logger.error('link is file: %s', dest)
             else:
                 dest_dir = os.path.dirname(dest)
                 if os.path.isdir(dest_dir):
                     os.symlink(src, dest)
-                    self.installed['links'][src] = dest
+                    # self.installed['links'][src] = dest
                 else:
                     try:
                         os.makedirs(dest_dir)
                         os.symlink(src, dest)
-                        self.installed['links'][src] = dest
-                    except os.error as e:
-                        self.errors['install'].append(
-                            'can not create directory for ' + dest + ' : ' + e)
+                        # self.installed['links'][src] = dest
+                    except os.error as error:
+                        logger.error('can not create symlink %s -> %s:', dest, src)
+                        logger.exception(error)
 
-    def __action(self, command):
-        cmd = Cmd(command).invoke()
-        if not cmd.success:
-            self.last_error = cmd.stderr
-        self.updated_on = datetime.utcnow()
-        return cmd.success, cmd.stdout
+
+class File:
+    def __init__(self, src, dest, itype):
+        self.src = src
+        self._dest = dest
+        self._type = itype
+
+    def is_link(self):
+        return self._type == 'link'
+
+    @property
+    def dest(self):
+        if not self._dest:
+            return os.path.join(os.path.expanduser('~'), f'.{self.src}')
+
+        if self._dest.startswith(('~', '/')):
+            return os.path.expanduser(self._dest)
+
+        return os.path.join(os.path.expanduser('~'), self._dest)
 
 
 class Cmd:
-    def __init__(self, cmd):
-        self.cmd = cmd
+    def __init__(self, *cmd):
+        self.cmd = ' '.join([shlex.quote(c) for c in cmd])
         self.stdout = None
         self.stderr = None
         self.exitcode = None
 
-    def invoke(self):
-        # TODO: use with
-        process = Popen(
-            self.cmd,
-            stdout=PIPE,
-            stderr=PIPE
-        )
-        stdout, stderr = process.communicate()
-        self.stdout, self.stderr = self.__str(stdout), self.__str(stderr)
-        self.exitcode = process.returncode
-        return self
+    async def run(self):
+        proc = await asyncio.create_subprocess_shell(self.cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
+
+        logger.debug('invoking cmd: %s', self.cmd)
+        self.stdout, self.stderr = await proc.communicate()
+        self.exitcode = proc.returncode
 
     def success(self):
         return self.exitcode == 0
 
-    def __str(self, maybe_bytes):
-        if isinstance(maybe_bytes, bytes):
-            return maybe_bytes.decode('utf-8')
-        return maybe_bytes
+    def stdout_if_success(self):
+        if self.success():
+            return self.stdout.decode('utf-8').rstrip('\n')
+
+        logger.error('command %s failed with %i: %s', self.cmd, self.exitcode, self.stderr)
+        return None
 
 
-class AsyncDo:
-    def __init__(self, items, func):
-        self.items = items
-        self.func = func
-        self.workers = []
-        self.i = None
-
-    def __iter__(self):
-        self.__start()
-        self.i = iter(self.items)
-
-        return self
-
-    def __next__(self):
-        n = next(self.i)
-        return n, self.items[n]
-    next = __next__
-
-    def __start(self):
-        if self.workers:
-            return
-        for name in self.items:
-            p_conn, c_conn = Pipe()
-            worker = Process(
-                target=self.__func, args=(
-                    c_conn, self.items[name],))
-            self.workers.append((worker, p_conn, name))
-            worker.start()
-        for worker, _, _ in self.workers:
-            worker.join()
-        for _, conn, name in self.workers:
-            self.items[name] = conn.recv()
-
-    def __func(self, conn, data):
-        self.func(data)
-        conn.send(data)
-        conn.close()
+class Folder:
+    def __init__(self, path):
+        self.path = path
+        self.state = {}
+    async def load_state(self):
+        pass
+    async def update(self):
+        pass
 
 
 class Git:
-    __CMD = ['git']
-
     @staticmethod
-    def url(rpath):
-        return Git.__CMD + \
-            [f'--git-dir={rpath}/.git', 'config', 'remote.origin.url']
+    def exists(path):
+        return os.access(os.path.join(path, '.git'), os.R_OK)
 
     def __init__(self, path):
         self.path = path
+        self._cmd = [shutil.which('git'), f'--git-dir={self.path}/.git', f'--work-tree={self.path}']
+        self.state = { 'name': 'git' }
 
-    def clone(self, url):
-        return self.__CMD + ['clone', '--quiet',
-                             '--recursive', '--', url, self.path]
+    async def load_state(self):
+        branch = Cmd(*self._cmd, 'branch', '--show-current')
+        commit = Cmd(*self._cmd, 'rev-parse', '--short', 'HEAD')
 
-    def exists(self):
-        return os.access(os.path.join(self.path, '.git'), os.R_OK)
+        await asyncio.gather(*[c.run() for c in [branch, commit]])
 
-    def pull(self):
-        return self.__base() + ['pull']
+        self.state['branch'] = branch.stdout_if_success()
+        self.state['commit'] = commit.stdout_if_success()
 
-    def push(self):
-        return self.__base() + ['push']
+    # def clone(self, url):
+    #     return self.__CMD + ['clone', '--quiet', '--recursive', '--', url, self.path]
 
-    def status(self):
-        return self.__base() + ['status', '--porcelain']
+    async def update(self):
+        await Cmd(*self._cmd, 'pull', '--quiet').run()
+        await Cmd(*self._cmd, 'submodule', '--quiet', 'update').run()
+        await self.load_state()
 
-    def revision(self):
-        return self.__base() + ['rev-parse', 'HEAD']
+    # async def push(self):
+    #     await Cmd(*self._cmd, 'push', '--quiet').run()
+    #     await self.load_state()
 
-    def __base(self):
-        return self.__CMD + self.__path_settings()
-
-    def __path_settings(self):
-        return [t.format(self.path)
-                for t in ['--git-dir={}/.git', '--work-tree={}']]
+    # async def status(self):
+    #     await Cmd(*self._cmd, 'status', '--porcelain').run()
+    #     await self.load_state()
 
 
 if __name__ == '__main__':
-    Dotfiles().manage(sys.argv[1:])
+    asyncio.run(main(sys.argv[1:]))

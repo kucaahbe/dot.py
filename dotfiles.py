@@ -10,7 +10,6 @@ import shlex
 import argparse
 import json
 from datetime import datetime
-from enum import Enum
 import configparser
 from itertools import chain
 
@@ -115,18 +114,25 @@ async def status(state=None):
 
     print('repos status:\n')
     for repo in state.repos:
-        print(f'{repo.path}: {repo.state}', end='')
-        if repo.vcs:
-            print(f' ({repo.vcs.state})', end='')
-        print()
-        if repo.state == DotState.ABSENT:
-            continue
-        if repo.files:
-            for file in repo.files:
-                if file.is_link():
-                    print(f'  {file.src} -> {file.dest}')
-        else:
-            print(f'  {CONFIG_NAME} not found')
+        print_repo_status(repo)
+
+def print_repo_status(repo):
+    if not repo.exists:
+        print(f'{ansi(9)}{repo.path}{ansi(0)}:')
+        print('  repo does not exist')
+        return
+
+    print(f'{repo.path}', end='')
+    if repo.vcs:
+        print(f' ({repo.vcs.state})', end='')
+    print()
+
+    if repo.files:
+        for file in repo.files:
+            if file.is_link():
+                print(f'  {file.src} -> {file.dest}')
+    else:
+        print(f'  {CONFIG_NAME} not found')
 
 @with_state
 async def add(path, url, state=None):
@@ -174,9 +180,6 @@ async def install(state=None):
     await asyncio.gather(*[repo.install() for repo in state.repos])
 
 
-DotState = Enum('DotState', 'UNKNOWN EXISTS ABSENT BLANK')
-
-
 class Dot:
     TIME_FMT = '%Y-%m-%dT%H:%M:%S.%f'
 
@@ -186,7 +189,7 @@ class Dot:
 
     def __init__(self, path):
         self.path = self.__class__.normalized_path(path)
-        self.state = DotState.UNKNOWN
+        self.exists = False
         self.updated_on = None
         self.revision = None
         self.files = []
@@ -206,9 +209,9 @@ class Dot:
 
     async def check(self):
         if not os.access(self.path, os.R_OK):
-            self.state = DotState.ABSENT
             return
 
+        self.exists = True
         self.__load_config__()
 
         if Git.exists(self.path):
@@ -363,6 +366,10 @@ class Git:
     #     await Cmd(*self._cmd, 'status', '--porcelain').run()
     #     await self.load_state()
 
+
+def ansi(*code):
+    code = ','.join(map(str, code))
+    return f'\033[{code}m'
 
 if __name__ == '__main__':
     asyncio.run(main(sys.argv[1:]))

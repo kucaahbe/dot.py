@@ -122,9 +122,14 @@ def print_repo_status(repo):
         print('  repo does not exist')
         return
 
-    print(f'{repo.path}', end='')
+    path = nice_path(repo.path)
+    print(f'{path}', end='')
     if repo.vcs:
-        print(f' ({repo.vcs.state})', end='')
+        vcs = repo.vcs.state
+        vsc_name = vcs['name']
+        vsc_branch = vcs['branch']
+        vsc_curr_commit = vcs['commit']
+        print(f' {vsc_name}:{vsc_branch}({vsc_curr_commit})', end='')
     print()
 
     if repo.files:
@@ -370,6 +375,13 @@ class Git:
 def ansi(*code):
     code = ','.join(map(str, code))
     return f'\033[{code}m'
+
+def nice_path(path):
+    part_path = os.path.relpath(path, start=os.path.expanduser('~'))
+    if part_path == path:
+        return path
+    else:
+        return os.path.join('~', part_path)
 
 if __name__ == '__main__':
     asyncio.run(main(sys.argv[1:]))

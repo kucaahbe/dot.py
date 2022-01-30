@@ -117,13 +117,15 @@ async def status(state=None):
         print_repo_status(repo)
 
 def print_repo_status(repo):
+    path_output = PP(repo.nice_path)
     if not repo.exists:
-        print(f'{ansi(9)}{repo.path}{ansi(0)}:')
+        path_output.decorate(9)
+        print(f'{path_output}:')
         print('  repo does not exist')
         return
 
-    path = nice_path(repo.path)
-    print(f'{path}', end='')
+    path_output.decorate(1)
+    print(f'{path_output}', end='')
     if repo.vcs:
         vcs = repo.vcs
         print(f' {vcs.name}:{vcs.branch}({vcs.commit})', end='')
@@ -230,6 +232,14 @@ class Dot:
     async def install(self):
         await self.check()
         self.__symlink_files__()
+
+    @property
+    def nice_path(self):
+        part_path = os.path.relpath(self.path, start=os.path.expanduser('~'))
+        if part_path == self.path:
+            return self.path
+
+        return os.path.join('~', part_path)
 
     def __load_config__(self):
         config_file = os.path.join(self.path, CONFIG_NAME)
@@ -361,17 +371,22 @@ class Git:
     #     await Cmd(*self._cmd, 'status', '--porcelain').run()
     #     await self.load()
 
+class PP:
+    def __init__(self, string, *modes):
+        self.string = string
+        self.modes = set(modes)
 
-def ansi(*code):
-    code = ','.join(map(str, code))
-    return f'\033[{code}m'
+    def decorate(self, *modes):
+        for mode in modes:
+            self.modes.add(mode)
 
-def nice_path(path):
-    part_path = os.path.relpath(path, start=os.path.expanduser('~'))
-    if part_path == path:
-        return path
+    def __str__(self):
+        return f'{self.ansi(*self.modes)}{self.string}{self.ansi(0)}'
 
-    return os.path.join('~', part_path)
+    @staticmethod
+    def ansi(*codes):
+        code = ','.join(map(str, codes))
+        return f'\033[{code}m'
 
 if __name__ == '__main__':
     asyncio.run(main(sys.argv[1:]))

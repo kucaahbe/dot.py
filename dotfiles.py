@@ -125,11 +125,8 @@ def print_repo_status(repo):
     path = nice_path(repo.path)
     print(f'{path}', end='')
     if repo.vcs:
-        vcs = repo.vcs.state
-        vsc_name = vcs['name']
-        vsc_branch = vcs['branch']
-        vsc_curr_commit = vcs['commit']
-        print(f' {vsc_name}:{vsc_branch}({vsc_curr_commit})', end='')
+        vcs = repo.vcs
+        print(f' {vcs.name}:{vcs.branch}({vcs.commit})', end='')
     print()
 
     if repo.files:
@@ -221,14 +218,14 @@ class Dot:
 
         if Git.exists(self.path):
             self.vcs = Git(self.path)
-        else:
-            self.vcs = Folder(self.path)
 
-        await self.vcs.load_state()
+        if self.vcs:
+            await self.vcs.load()
 
     async def update(self):
         await self.check()
-        await self.vcs.update()
+        if self.vcs:
+            await self.vcs.update()
 
     async def install(self):
         await self.check()
@@ -326,16 +323,6 @@ class Cmd:
         return None
 
 
-class Folder:
-    def __init__(self, path):
-        self.path = path
-        self.state = {}
-    async def load_state(self):
-        pass
-    async def update(self):
-        pass
-
-
 class Git:
     @staticmethod
     def exists(path):
@@ -343,17 +330,20 @@ class Git:
 
     def __init__(self, path):
         self.path = path
-        self._cmd = [shutil.which('git'), f'--git-dir={self.path}/.git', f'--work-tree={self.path}']
-        self.state = { 'name': 'git' }
+        self.name = 'git'
+        self.branch = None
+        self.commit = None
 
-    async def load_state(self):
+        self._cmd = [shutil.which('git'), f'--git-dir={self.path}/.git', f'--work-tree={self.path}']
+
+    async def load(self):
         branch = Cmd(*self._cmd, 'branch', '--show-current')
         commit = Cmd(*self._cmd, 'rev-parse', '--short', 'HEAD')
 
         await asyncio.gather(*[c.run() for c in [branch, commit]])
 
-        self.state['branch'] = branch.stdout_if_success()
-        self.state['commit'] = commit.stdout_if_success()
+        self.branch = branch.stdout_if_success()
+        self.commit = commit.stdout_if_success()
 
     # def clone(self, url):
     #     return self.__CMD + ['clone', '--quiet', '--recursive', '--', url, self.path]
@@ -361,15 +351,15 @@ class Git:
     async def update(self):
         await Cmd(*self._cmd, 'pull', '--quiet').run()
         await Cmd(*self._cmd, 'submodule', '--quiet', 'update').run()
-        await self.load_state()
+        await self.load()
 
     # async def push(self):
     #     await Cmd(*self._cmd, 'push', '--quiet').run()
-    #     await self.load_state()
+    #     await self.load()
 
     # async def status(self):
     #     await Cmd(*self._cmd, 'status', '--porcelain').run()
-    #     await self.load_state()
+    #     await self.load()
 
 
 def ansi(*code):
@@ -380,8 +370,8 @@ def nice_path(path):
     part_path = os.path.relpath(path, start=os.path.expanduser('~'))
     if part_path == path:
         return path
-    else:
-        return os.path.join('~', part_path)
+
+    return os.path.join('~', part_path)
 
 if __name__ == '__main__':
     asyncio.run(main(sys.argv[1:]))

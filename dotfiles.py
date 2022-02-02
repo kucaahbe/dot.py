@@ -128,7 +128,7 @@ def print_repo_status(repo):
     print(f'{path_output}', end='')
     if repo.vcs:
         vcs = repo.vcs
-        print(f' {vcs.name}:{vcs.branch}({vcs.commit})', end='')
+        print(f' {vcs.name}:{vcs.branch}@{vcs.commit}', end='')
     print()
 
     if repo.files:

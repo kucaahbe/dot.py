@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# pylint: disable=missing-function-docstring, missing-module-docstring, missing-class-docstring
 import os
 import sys
 import logging

@@ -131,9 +131,9 @@ def print_repo_status(repo):
     print()
 
     if repo.files:
-        for file in repo.files:
-            if file.is_link():
-                print(f'  {file.src} -> {Dot.nice_path(file.dest)}')
+        max_src_length = max([len(file.src) for file in repo.files])
+        for file in filter(File.is_link, repo.files):
+            print(f'  {file.src:{max_src_length}} -> {Dot.nice_path(file.dest)}')
     else:
         print(f'  {CONFIG_NAME} not found')
 

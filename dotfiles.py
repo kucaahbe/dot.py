@@ -8,6 +8,7 @@ import shutil
 import shlex
 import argparse
 import json
+import string
 from datetime import datetime
 import configparser
 from itertools import chain
@@ -111,20 +112,20 @@ def with_state(func):
 async def status(state=None):
     await asyncio.gather(*[repo.check() for repo in state.repos])
 
-    print('repos status:\n')
+    max_path_length = max([len(Dot.nice_path(repo.path)) for repo in state.repos])
     for repo in state.repos:
-        print_repo_status(repo)
+        print_repo_status(repo, max_path_length)
 
-def print_repo_status(repo):
+def print_repo_status(repo, max_path_length):
     path_output = PP(Dot.nice_path(repo.path))
     if not repo.exists:
         path_output.decorate(9)
-        print(f'{path_output}:')
+        print(path_output)
         print('  repo does not exist')
         return
 
     path_output.decorate(1)
-    print(f'{path_output}', end='')
+    print(f'{path_output:{max_path_length}}', end='')
     if repo.vcs:
         vcs = repo.vcs
         print(f' {vcs.name}:{vcs.branch}@{vcs.commit}', end='')
@@ -371,8 +372,8 @@ class Git:
     #     await self.load()
 
 class PP:
-    def __init__(self, string, *modes):
-        self.string = string
+    def __init__(self, text, *modes):
+        self.text = text
         self.modes = set(modes)
 
     def decorate(self, *modes):
@@ -380,7 +381,20 @@ class PP:
             self.modes.add(mode)
 
     def __str__(self):
-        return f'{self.ansi(*self.modes)}{self.string}{self.ansi(0)}'
+        return f'{self.ansi(*self.modes)}{self.text}{self.ansi(0)}'
+
+    def __format__(self, format_spec):
+        # https://docs.python.org/3/library/string.html#formatspec
+        fmt, _, post = format_spec.rpartition('.')
+        if not fmt:
+            fmt = post
+        fmt_prefix = fmt.rstrip(string.digits)
+        length = fmt[len(fmt_prefix):len(fmt)]
+        if length:
+            length = len(self.__str__()) - len(self.text) + int(length)
+
+        fmt = fmt_prefix + str(length)
+        return f"{str(self):{fmt}}"
 
     @staticmethod
     def ansi(*codes):

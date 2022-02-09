@@ -116,7 +116,7 @@ async def status(state=None):
         print_repo_status(repo)
 
 def print_repo_status(repo):
-    path_output = PP(repo.nice_path)
+    path_output = PP(Dot.nice_path(repo.path))
     if not repo.exists:
         path_output.decorate(9)
         print(f'{path_output}:')
@@ -133,7 +133,7 @@ def print_repo_status(repo):
     if repo.files:
         for file in repo.files:
             if file.is_link():
-                print(f'  {file.src} -> {file.dest}')
+                print(f'  {file.src} -> {Dot.nice_path(file.dest)}')
     else:
         print(f'  {CONFIG_NAME} not found')
 
@@ -190,6 +190,14 @@ class Dot:
     def normalized_path(path):
         return os.path.abspath(os.path.expanduser(os.path.normpath(path)))
 
+    @staticmethod
+    def nice_path(path):
+        part_path = os.path.relpath(path, start=os.path.expanduser('~'))
+        if part_path == path:
+            return path
+
+        return os.path.join('~', part_path)
+
     def __init__(self, path):
         self.path = self.__class__.normalized_path(path)
         self.exists = False
@@ -231,14 +239,6 @@ class Dot:
     async def install(self):
         await self.check()
         self.__symlink_files__()
-
-    @property
-    def nice_path(self):
-        part_path = os.path.relpath(self.path, start=os.path.expanduser('~'))
-        if part_path == self.path:
-            return self.path
-
-        return os.path.join('~', part_path)
 
     def __load_config__(self):
         config_file = os.path.join(self.path, CONFIG_NAME)

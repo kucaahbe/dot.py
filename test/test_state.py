@@ -1,20 +1,19 @@
 import unittest
-from unittest.mock import patch
 import os
+
+from fake_state import FakeState
 
 import dotfiles
 
-class TestStateWhenStateFileIsBlank(unittest.TestCase):
+class TestStateWhenStateFileIsBlank(unittest.TestCase, FakeState):
     TEST_STATE_FILE = os.path.join('test', 'nonexistent.json')
 
     def setUp(self):
-        self.patcher = patch('dotfiles.STATE_FILE', self.TEST_STATE_FILE)
-        self.patcher.start()
+        self.setup_test_state()
         self.state = dotfiles.State()
 
     def tearDown(self):
-        self.patcher.stop()
-        os.remove(self.TEST_STATE_FILE)
+        self.stop_test_state()
 
     def test_loads_blank_repos(self):
         repos = None
@@ -35,20 +34,16 @@ class TestStateWhenStateFileIsBlank(unittest.TestCase):
             file_content = state_f.read()
         self.assertEqual(file_content, '{}')
 
-class TestStateWhenStateFileIsPresent(unittest.TestCase):
+class TestStateWhenStateFileIsPresent(unittest.TestCase, FakeState):
     TEST_STATE_FILE = os.path.join('test', 'state.json')
     TEST_STATE = '{ "/repo2": {}, "/repo1": {} }'
 
     def setUp(self):
-        self.patcher = patch("dotfiles.STATE_FILE", self.TEST_STATE_FILE)
-        self.patcher.start()
-        with open(self.TEST_STATE_FILE, 'w', encoding='utf-8') as state_f:
-            state_f.write(self.TEST_STATE)
+        self.setup_test_state()
         self.state = dotfiles.State()
 
     def tearDown(self):
-        self.patcher.stop()
-        os.remove(self.TEST_STATE_FILE)
+        self.stop_test_state()
 
     def test_loads_repos(self):
         repos = None

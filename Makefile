@@ -20,3 +20,7 @@ test/report:
 	  $$CMD htmlcov/index.html 2>/dev/null
 	@sleep 1 # wait for stdout output to appear and than return to cli prompt
 .PHONY: test/report
+
+lint:
+	pylint dotfiles.py test/*.py
+.PHONY: lint

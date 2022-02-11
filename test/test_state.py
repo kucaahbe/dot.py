@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 import os
+
 import dotfiles
 
 class TestStateWhenStateFileIsBlank(unittest.TestCase):
@@ -22,16 +23,16 @@ class TestStateWhenStateFileIsBlank(unittest.TestCase):
         self.assertEqual(repos, [])
 
     def test_saves_state_file(self):
-        with dotfiles.State() as state:
+        with dotfiles.State() as _:
             pass
         self.assertTrue(os.access(self.TEST_STATE_FILE, os.R_OK))
 
     def test_state_file_contains_blank(self):
-        with dotfiles.State() as state:
+        with dotfiles.State() as _:
             pass
         file_content = None
-        with open(self.TEST_STATE_FILE, 'r', encoding='utf-8') as f:
-            file_content = f.read()
+        with open(self.TEST_STATE_FILE, 'r', encoding='utf-8') as state_f:
+            file_content = state_f.read()
         self.assertEqual(file_content, '{}')
 
 class TestStateWhenStateFileIsPresent(unittest.TestCase):
@@ -71,11 +72,11 @@ class TestStateWhenStateFileIsPresent(unittest.TestCase):
         self.assertEqual(paths, ['/repo1', '/repo2'])
 
     def test_persists_state_file(self):
-        with dotfiles.State() as state:
+        with dotfiles.State() as _:
             pass
         file_content = None
-        with open(self.TEST_STATE_FILE, 'r', encoding='utf-8') as f:
-            file_content = f.read()
+        with open(self.TEST_STATE_FILE, 'r', encoding='utf-8') as state_f:
+            file_content = state_f.read()
         expected_content = '''{
   "/repo1": {
     "revision": null,

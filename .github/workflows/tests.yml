@@ -27,9 +27,6 @@ jobs:
     - name: Test
       run: |
         make test
-    - name: Generate code coverage
-      run: |
-        coverage html
     - name: Archive code coverage results
       uses: actions/upload-artifact@v2
       with:

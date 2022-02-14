@@ -193,11 +193,17 @@ class Dot:
 
     @staticmethod
     def nice_path(path):
-        part_path = os.path.relpath(path, start=os.path.expanduser('~'))
-        if part_path == path:
+        path = os.path.normpath(path)
+
+        if path.startswith('~'):
             return path
 
-        return os.path.join('~', part_path)
+        user_home = os.path.expanduser('~')
+        if path.startswith(user_home):
+            rel_path = os.path.relpath(path, start=user_home)
+            return os.path.join('~', rel_path)
+
+        return path
 
     def __init__(self, path):
         self.path = self.__class__.normalized_path(path)

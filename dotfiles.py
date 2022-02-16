@@ -12,6 +12,7 @@ import string
 from datetime import datetime
 import configparser
 from itertools import chain
+import time
 
 XDG_DATA_HOME = os.getenv('XDG_DATA_HOME') or os.path.join(os.getenv('HOME'), '.local', 'share')
 STATE_FILE = os.path.join(XDG_DATA_HOME, 'dotfiles.state')
@@ -261,22 +262,30 @@ class Dot:
             self.files.append(File(src, dest, 'link'))
 
     def __symlink_files__(self):
-        # TODO: remove all previously installed symlinks/files
-
         for file in [f for f in self.files if f.is_link()]:
             src = os.path.join(self.path, file.src)
             dest = Dot.normalized_path(file.dest)
 
-            print(src, dest)
+            logger.debug(src, dest)
             if os.path.exists(dest):
                 if os.path.islink(dest):
                     real_link = os.readlink(dest)
                     if real_link == src:
                         logger.debug('link OK: %s -> %s', dest, src)
                     else:
-                        logger.error('link NOT OK: %s -> %s', dest, real_link)
+                        logger.debug('link NOT OK(file exists, backing up): %s -> %s', dest, real_link)
+                        backup_ext = time.strftime('.%Y%m%d-%H%M%S.dotfiles.bak', time.localtime())
+                        dest_dirname, dest_basename = os.path.split(dest)
+                        dest_backup = os.path.join(dest_dirname, dest_basename+backup_ext)
+                        os.rename(dest, dest_backup)
+                        os.symlink(src, dest)
                 else:
-                    logger.error('link is file: %s', dest)
+                    logger.debug('link is file: %s', dest)
+                    backup_ext = time.strftime('.%Y%m%d-%H%M%S.dotfiles.bak', time.localtime())
+                    dest_dirname, dest_basename = os.path.split(dest)
+                    dest_backup = os.path.join(dest_dirname, dest_basename+backup_ext)
+                    os.rename(dest, dest_backup)
+                    os.symlink(src, dest)
             else:
                 dest_dir = os.path.dirname(dest)
                 if os.path.isdir(dest_dir):

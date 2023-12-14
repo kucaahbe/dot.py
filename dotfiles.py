@@ -113,7 +113,7 @@ def with_state(func):
 async def status(state=None):
     await asyncio.gather(*[repo.check() for repo in state.repos])
 
-    max_path_length = max([len(Dot.nice_path(repo.path)) for repo in state.repos])
+    max_path_length = max(len(Dot.nice_path(repo.path)) for repo in state.repos)
     for repo in state.repos:
         print_repo_status(repo, max_path_length)
 
@@ -133,7 +133,7 @@ def print_repo_status(repo, max_path_length):
     print()
 
     if repo.files:
-        max_src_length = max([len(file.src) for file in repo.files])
+        max_src_length = max(len(file.src) for file in repo.files)
         for file in filter(File.is_link, repo.files):
             print(f'  {file.src:{max_src_length}} -> {Dot.nice_path(file.dest)}')
     else:
@@ -273,7 +273,7 @@ class Dot:
                     if real_link == src:
                         logger.debug('link OK: %s -> %s', dest, src)
                     else:
-                        logger.debug('link NOT OK(file exists, backing up): %s -> %s', dest, real_link)
+                        logger.debug('link exists, backing up): %s -> %s', dest, real_link)
                         backup_ext = time.strftime('.%Y%m%d-%H%M%S.dotfiles.bak', time.localtime())
                         dest_dirname, dest_basename = os.path.split(dest)
                         dest_backup = os.path.join(dest_dirname, dest_basename+backup_ext)
